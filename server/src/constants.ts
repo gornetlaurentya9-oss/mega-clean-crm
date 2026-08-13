@@ -1,0 +1,41 @@
+// Fixed service type list — not user-editable in Phase 1.
+export const SERVICE_TYPES = [
+  "Deep cleaning",
+  "Regular cleaning – commercial",
+  "Regular cleaning – domestic",
+  "Carpet cleaning",
+] as const;
+
+export type ServiceType = (typeof SERVICE_TYPES)[number];
+
+export const FREQUENCIES = ["weekly", "fortnightly", "monthly", "one-off"] as const;
+export type Frequency = (typeof FREQUENCIES)[number];
+
+export const CLIENT_STATUSES = ["active", "paused", "inactive"] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+
+export const EMPLOYEE_STATUSES = ["active", "inactive"] as const;
+export type EmployeeStatus = (typeof EMPLOYEE_STATUSES)[number];
+
+export const BILLING_RATE_TYPES = ["per-hour", "per-visit"] as const;
+export type BillingRateType = (typeof BILLING_RATE_TYPES)[number];
+
+export const JOB_STATUSES = [
+  "scheduled",
+  "confirmed",
+  "completed",
+  "cancelled",
+  "rescheduled",
+] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];
+
+export const DAYS_OF_WEEK = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+export type DayOfWeek = (typeof DAYS_OF_WEEK)[number];
