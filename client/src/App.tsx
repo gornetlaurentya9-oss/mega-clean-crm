@@ -9,6 +9,8 @@ import EmployeeDetail from "./pages/EmployeeDetail";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
 import Invoicing from "./pages/Invoicing";
+import Roster from "./pages/Roster";
+import PrintWeek from "./pages/PrintWeek";
 
 function Gate() {
   const { authed, loading } = useAuth();
@@ -32,6 +34,8 @@ function Gate() {
         <Route path="/clients" component={Clients} />
         <Route path="/clients/:id" component={ClientDetail} />
         <Route path="/invoicing" component={Invoicing} />
+        <Route path="/roster" component={Roster} />
+        <Route path="/roster/print/:weekStart/:employeeId" component={PrintWeek} />
         <Route>
           <div className="p-8 text-center text-gray-500">Page not found.</div>
         </Route>

@@ -2,6 +2,7 @@ import { useParams, useLocation } from "wouter";
 import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, Spinner } from "../components/ui";
 import { ClientForm, type ClientFormValues } from "../components/ClientForm";
+import { RecurringPatterns } from "../components/RecurringPatterns";
 
 export default function ClientDetail() {
   const { id } = useParams();
@@ -89,6 +90,11 @@ export default function ClientDetail() {
           submitting={update.isPending}
           submitLabel="Save changes"
         />
+      </Card>
+
+      <Card>
+        <h2 className="mb-2 font-semibold text-gray-900">Recurring cleaning patterns</h2>
+        <RecurringPatterns clientId={clientId} />
       </Card>
     </div>
   );
