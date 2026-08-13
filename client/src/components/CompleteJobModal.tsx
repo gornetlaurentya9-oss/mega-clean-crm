@@ -10,6 +10,7 @@ export function CompleteJobModal({ open, onClose, job }: { open: boolean; onClos
   const complete = trpc.jobs.complete.useMutation({
     onSuccess: () => {
       utils.jobs.list.invalidate();
+      utils.dashboard.summary.invalidate();
       onClose();
     },
   });

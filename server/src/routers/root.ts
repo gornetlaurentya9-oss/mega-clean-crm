@@ -4,6 +4,7 @@ import { employeesRouter } from "./employees.js";
 import { clientsRouter } from "./clients.js";
 import { jobsRouter } from "./jobs.js";
 import { recurringPatternsRouter } from "./recurringPatterns.js";
+import { dashboardRouter } from "./dashboard.js";
 
 export const appRouter = router({
   auth: authRouter,
@@ -11,6 +12,7 @@ export const appRouter = router({
   clients: clientsRouter,
   jobs: jobsRouter,
   recurringPatterns: recurringPatternsRouter,
+  dashboard: dashboardRouter,
 });
 
 export type AppRouter = typeof appRouter;
