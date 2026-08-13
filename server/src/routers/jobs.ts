@@ -60,41 +60,41 @@ export const jobsRouter = router({
         clientId: z.number().optional(),
       })
     )
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       const conditions = [];
       if (input.from) conditions.push(gte(jobs.scheduledDate, input.from));
       if (input.to) conditions.push(lte(jobs.scheduledDate, input.to));
       if (input.status) conditions.push(eq(jobs.status, input.status));
       if (input.clientId) conditions.push(eq(jobs.clientId, input.clientId));
       const query = withJoins();
-      const rows = conditions.length ? query.where(and(...conditions)).all() : query.all();
+      const rows = conditions.length ? await query.where(and(...conditions)) : await query;
       return rows.map(flatten).sort((a, b) => (a.scheduledDate + a.startTime).localeCompare(b.scheduledDate + b.startTime));
     }),
 
-  byId: protectedProcedure.input(z.object({ id: z.number() })).query(({ input }) => {
-    const row = withJoins().where(eq(jobs.id, input.id)).get();
+  byId: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const rows = await withJoins().where(eq(jobs.id, input.id));
+    const row = rows[0];
     return row ? flatten(row) : null;
   }),
 
-  create: protectedProcedure.input(jobInput).mutation(({ input }) => {
-    const row = db
+  create: protectedProcedure.input(jobInput).mutation(async ({ input }) => {
+    const [row] = await db
       .insert(jobs)
       .values({ ...input, updatedAt: new Date().toISOString() })
-      .returning()
-      .get();
+      .returning();
     return row;
   }),
 
   update: protectedProcedure
     .input(jobInput.partial().extend({ id: z.number() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const { id, ...rest } = input;
-      return db
+      const [row] = await db
         .update(jobs)
         .set({ ...rest, updatedAt: new Date().toISOString() })
         .where(eq(jobs.id, id))
-        .returning()
-        .get();
+        .returning();
+      return row;
     }),
 
   // Cancel a job. Two real-world cases, one endpoint:
@@ -113,9 +113,9 @@ export const jobsRouter = router({
         completionNotes: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const billable = !!input.actualHours && input.actualHours > 0;
-      return db
+      const [row] = await db
         .update(jobs)
         .set({
           status: billable ? "cancelled-partial" : "cancelled",
@@ -124,8 +124,8 @@ export const jobsRouter = router({
           updatedAt: new Date().toISOString(),
         })
         .where(eq(jobs.id, input.id))
-        .returning()
-        .get();
+        .returning();
+      return row;
     }),
 
   // Move a job to a new date/time (and optionally reassign the employee) IN PLACE — same row,
@@ -141,8 +141,9 @@ export const jobsRouter = router({
         employeeId: z.number().int().optional().nullable(),
       })
     )
-    .mutation(({ input }) => {
-      const existing = db.select().from(jobs).where(eq(jobs.id, input.id)).get();
+    .mutation(async ({ input }) => {
+      const existingRows = await db.select().from(jobs).where(eq(jobs.id, input.id));
+      const existing = existingRows[0];
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
       }
@@ -152,7 +153,7 @@ export const jobsRouter = router({
           message: `Cannot reschedule a ${existing.status} job.`,
         });
       }
-      return db
+      const [row] = await db
         .update(jobs)
         .set({
           scheduledDate: input.scheduledDate,
@@ -162,8 +163,8 @@ export const jobsRouter = router({
           updatedAt: new Date().toISOString(),
         })
         .where(eq(jobs.id, input.id))
-        .returning()
-        .get();
+        .returning();
+      return row;
     }),
 
   complete: protectedProcedure
@@ -174,8 +175,8 @@ export const jobsRouter = router({
         completionNotes: z.string().optional().default(""),
       })
     )
-    .mutation(({ input }) => {
-      return db
+    .mutation(async ({ input }) => {
+      const [row] = await db
         .update(jobs)
         .set({
           status: "completed",
@@ -184,8 +185,8 @@ export const jobsRouter = router({
           updatedAt: new Date().toISOString(),
         })
         .where(eq(jobs.id, input.id))
-        .returning()
-        .get();
+        .returning();
+      return row;
     }),
 
   // Generates Job rows for the 7-day window starting at `weekStart` (YYYY-MM-DD, expected Monday)
@@ -193,8 +194,8 @@ export const jobsRouter = router({
   // client on that date, so re-running is safe (no duplicates).
   generateWeek: protectedProcedure
     .input(z.object({ weekStart: z.string() }))
-    .mutation(({ input }) => {
-      const patterns = db.select().from(recurringPatterns).where(eq(recurringPatterns.active, true)).all();
+    .mutation(async ({ input }) => {
+      const patterns = await db.select().from(recurringPatterns).where(eq(recurringPatterns.active, true));
       const weekStartDate = parseISO(input.weekStart);
       const created: (typeof jobs.$inferSelect)[] = [];
       const skipped: { clientId: number; date: string; reason: string }[] = [];
@@ -224,7 +225,7 @@ export const jobsRouter = router({
         //  2. A job from THIS pattern whose original (as-generated) date was this date, even if
         //     it has since been rescheduled to a different date — without this, regenerating a
         //     week that a job was rescheduled OUT of would recreate a duplicate at the old slot.
-        const existing = db
+        const existing = await db
           .select()
           .from(jobs)
           .where(
@@ -232,14 +233,13 @@ export const jobsRouter = router({
               eq(jobs.clientId, pattern.clientId),
               or(eq(jobs.scheduledDate, dateStr), and(eq(jobs.recurringPatternId, pattern.id), eq(jobs.originalDate, dateStr)))
             )
-          )
-          .all();
+          );
         if (existing.length > 0) {
           skipped.push({ clientId: pattern.clientId, date: dateStr, reason: "Job already exists" });
           continue;
         }
 
-        const row = db
+        const [row] = await db
           .insert(jobs)
           .values({
             clientId: pattern.clientId,
@@ -253,8 +253,7 @@ export const jobsRouter = router({
             recurringPatternId: pattern.id,
             updatedAt: new Date().toISOString(),
           })
-          .returning()
-          .get();
+          .returning();
         created.push(row);
       }
 
@@ -265,7 +264,7 @@ export const jobsRouter = router({
   // time-off, and employees not qualified for the job's service type.
   conflicts: protectedProcedure
     .input(z.object({ from: z.string(), to: z.string() }))
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       return computeConflicts(input.from, input.to);
     }),
 
@@ -273,32 +272,27 @@ export const jobsRouter = router({
   // used to build client reminder messages.
   upcomingReminders: protectedProcedure
     .input(z.object({ date: z.string().optional() }))
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       const date = input.date ?? format(addDays(new Date(), 1), "yyyy-MM-dd");
-      const rows = withJoins()
-        .where(eq(jobs.scheduledDate, date))
-        .all()
-        .map(flatten)
-        .filter((j) => j.status === "scheduled" || j.status === "confirmed");
+      const rawRows = await withJoins().where(eq(jobs.scheduledDate, date));
+      const rows = rawRows.map(flatten).filter((j) => j.status === "scheduled" || j.status === "confirmed");
       return rows;
     }),
 
   // Completed (and partially-completed-then-cancelled) jobs for a given month (YYYY-MM),
   // including paused/inactive clients' history. Jobs cancelled with no hours worked are
   // excluded — nothing was done, nothing is owed.
-  monthlyExport: protectedProcedure.input(z.object({ month: z.string() })).query(({ input }) => {
+  monthlyExport: protectedProcedure.input(z.object({ month: z.string() })).query(async ({ input }) => {
     const from = `${input.month}-01`;
     const to = `${input.month}-31`;
-    const rows = withJoins()
-      .where(
-        and(
-          gte(jobs.scheduledDate, from),
-          lte(jobs.scheduledDate, to),
-          or(...BILLABLE_STATUSES.map((s) => eq(jobs.status, s)))
-        )
+    const rawRows = await withJoins().where(
+      and(
+        gte(jobs.scheduledDate, from),
+        lte(jobs.scheduledDate, to),
+        or(...BILLABLE_STATUSES.map((s) => eq(jobs.status, s)))
       )
-      .all()
-      .map(flatten);
+    );
+    const rows = rawRows.map(flatten);
 
     return rows
       .map((j) => {

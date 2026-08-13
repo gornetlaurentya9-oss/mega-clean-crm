@@ -33,26 +33,26 @@ function serialize(row: typeof employees.$inferSelect) {
 export const employeesRouter = router({
   list: protectedProcedure
     .input(z.object({ status: z.enum(EMPLOYEE_STATUSES).optional() }).optional())
-    .query(({ input }) => {
-      const rows = db.select().from(employees).orderBy(desc(employees.createdAt)).all();
+    .query(async ({ input }) => {
+      const rows = await db.select().from(employees).orderBy(desc(employees.createdAt));
       let result = rows.map(serialize);
       if (input?.status) result = result.filter((e) => e.status === input.status);
       return result;
     }),
 
-  byId: protectedProcedure.input(z.object({ id: z.number() })).query(({ input }) => {
-    const row = db.select().from(employees).where(eq(employees.id, input.id)).get();
+  byId: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const rows = await db.select().from(employees).where(eq(employees.id, input.id));
+    const row = rows[0];
     if (!row) return null;
-    const timeOff = db
+    const timeOff = await db
       .select()
       .from(employeeTimeOff)
-      .where(eq(employeeTimeOff.employeeId, input.id))
-      .all();
+      .where(eq(employeeTimeOff.employeeId, input.id));
     return { ...serialize(row), timeOff };
   }),
 
-  create: protectedProcedure.input(employeeInput).mutation(({ input }) => {
-    const row = db
+  create: protectedProcedure.input(employeeInput).mutation(async ({ input }) => {
+    const [row] = await db
       .insert(employees)
       .values({
         ...input,
@@ -60,14 +60,13 @@ export const employeesRouter = router({
         availability: JSON.stringify(input.availability ?? []),
         updatedAt: new Date().toISOString(),
       })
-      .returning()
-      .get();
+      .returning();
     return serialize(row);
   }),
 
   update: protectedProcedure
     .input(employeeInput.partial().extend({ id: z.number() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const { id, ...rest } = input;
       const values: Record<string, unknown> = { ...rest, updatedAt: new Date().toISOString() };
       if (rest.qualifiedServiceTypes) {
@@ -76,19 +75,18 @@ export const employeesRouter = router({
       if (rest.availability) {
         values.availability = JSON.stringify(rest.availability);
       }
-      const row = db.update(employees).set(values).where(eq(employees.id, id)).returning().get();
+      const [row] = await db.update(employees).set(values).where(eq(employees.id, id)).returning();
       return serialize(row);
     }),
 
   setStatus: protectedProcedure
     .input(z.object({ id: z.number(), status: z.enum(EMPLOYEE_STATUSES) }))
-    .mutation(({ input }) => {
-      const row = db
+    .mutation(async ({ input }) => {
+      const [row] = await db
         .update(employees)
         .set({ status: input.status, updatedAt: new Date().toISOString() })
         .where(eq(employees.id, input.id))
-        .returning()
-        .get();
+        .returning();
       return serialize(row);
     }),
 
@@ -101,12 +99,13 @@ export const employeesRouter = router({
         reason: z.string().optional().default(""),
       })
     )
-    .mutation(({ input }) => {
-      return db.insert(employeeTimeOff).values(input).returning().get();
+    .mutation(async ({ input }) => {
+      const [row] = await db.insert(employeeTimeOff).values(input).returning();
+      return row;
     }),
 
-  removeTimeOff: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => {
-    db.delete(employeeTimeOff).where(eq(employeeTimeOff.id, input.id)).run();
+  removeTimeOff: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    await db.delete(employeeTimeOff).where(eq(employeeTimeOff.id, input.id));
     return { success: true };
   }),
 });

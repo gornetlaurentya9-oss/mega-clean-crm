@@ -1,16 +1,16 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "./schema.js";
 
-const dbPath = process.env.DATABASE_PATH || "./data/mega-clean.sqlite";
-const dir = path.dirname(dbPath);
-if (dir && dir !== ".") fs.mkdirSync(dir, { recursive: true });
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL is not set. See server/.env.example.");
+}
 
-const sqlite = new Database(dbPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+// Runtime app connection — points at Supabase's pooled (PgBouncer, port 6543) endpoint.
+// `prepare: false` is required for PgBouncer transaction-mode pooling, which doesn't support
+// prepared statements across connections.
+const client = postgres(connectionString, { prepare: false });
 
-export const db = drizzle(sqlite, { schema });
-export { sqlite };
+export const db = drizzle(client, { schema });
+export { client };

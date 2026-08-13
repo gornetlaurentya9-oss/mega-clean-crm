@@ -12,26 +12,24 @@ const BILLABLE_STATUSES = ["completed", "cancelled-partial"] as const;
 const ACTIVE_JOB_LIMIT = 8;
 
 export const dashboardRouter = router({
-  summary: protectedProcedure.query(() => {
+  summary: protectedProcedure.query(async () => {
     const now = new Date();
     const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd");
     const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd");
     const monthStart = format(startOfMonth(now), "yyyy-MM-dd");
     const today = format(now, "yyyy-MM-dd");
 
-    const weekJobs = db
+    const weekJobsRaw = await db
       .select()
       .from(jobs)
-      .where(and(gte(jobs.scheduledDate, weekStart), lte(jobs.scheduledDate, weekEnd)))
-      .all()
-      .filter((j) => j.status !== "cancelled");
+      .where(and(gte(jobs.scheduledDate, weekStart), lte(jobs.scheduledDate, weekEnd)));
+    const weekJobs = weekJobsRaw.filter((j) => j.status !== "cancelled");
 
-    const monthCompletedJobs = db
+    const monthCompletedJobs = await db
       .select({ job: jobs, client: clients })
       .from(jobs)
       .leftJoin(clients, eq(jobs.clientId, clients.id))
-      .where(and(gte(jobs.scheduledDate, monthStart), or(...BILLABLE_STATUSES.map((s) => eq(jobs.status, s)))))
-      .all();
+      .where(and(gte(jobs.scheduledDate, monthStart), or(...BILLABLE_STATUSES.map((s) => eq(jobs.status, s)))));
 
     const revenueToDate = monthCompletedJobs.reduce((sum, { job, client }) => {
       if (!client) return sum;
@@ -40,14 +38,15 @@ export const dashboardRouter = router({
       return sum + total;
     }, 0);
 
-    const awaitingCompletion = db
+    const awaitingCompletionRaw = await db
       .select()
       .from(jobs)
-      .where(lt(jobs.scheduledDate, today))
-      .all()
-      .filter((j) => j.status === "scheduled" || j.status === "confirmed").length;
+      .where(lt(jobs.scheduledDate, today));
+    const awaitingCompletion = awaitingCompletionRaw.filter(
+      (j) => j.status === "scheduled" || j.status === "confirmed"
+    ).length;
 
-    const conflictCount = computeConflicts(weekStart, weekEnd).length;
+    const conflictCount = (await computeConflicts(weekStart, weekEnd)).length;
 
     return {
       weekJobCount: weekJobs.length,
@@ -60,7 +59,7 @@ export const dashboardRouter = router({
   // Extra at-a-glance detail for the dashboard: today/tomorrow's remaining jobs, active
   // conflicts (enriched with enough job info to link straight to the roster), and jobs still
   // awaiting completion confirmation. Kept short/mobile-friendly — this is not an analytics page.
-  details: protectedProcedure.query(() => {
+  details: protectedProcedure.query(async () => {
     const now = new Date();
     const today = format(now, "yyyy-MM-dd");
     const tomorrow = format(addDays(now, 1), "yyyy-MM-dd");
@@ -75,9 +74,10 @@ export const dashboardRouter = router({
         .leftJoin(employees, eq(jobs.employeeId, employees.id));
     }
 
-    const upcoming = withJoins()
-      .where(and(gte(jobs.scheduledDate, today), lte(jobs.scheduledDate, tomorrow)))
-      .all()
+    const upcomingRaw = await withJoins().where(
+      and(gte(jobs.scheduledDate, today), lte(jobs.scheduledDate, tomorrow))
+    );
+    const upcoming = upcomingRaw
       .filter((r) => r.job.status === "scheduled" || r.job.status === "confirmed")
       .map((r) => ({
         id: r.job.id,
@@ -92,10 +92,10 @@ export const dashboardRouter = router({
 
     // Look a little further out than "this week" so a conflict created by editing next week's
     // roster (or next week's time-off) still surfaces here, not just this week's count.
-    const conflicts = computeConflicts(weekStart, twoWeeksOut);
+    const conflicts = await computeConflicts(weekStart, twoWeeksOut);
     const conflictJobIds = [...new Set(conflicts.map((c) => c.jobId))];
     const conflictJobRows = conflictJobIds.length
-      ? withJoins().where(inArray(jobs.id, conflictJobIds)).all()
+      ? await withJoins().where(inArray(jobs.id, conflictJobIds))
       : [];
     const conflictJobMap = new Map(conflictJobRows.map((r) => [r.job.id, r]));
     const conflictDetails = conflicts
@@ -111,9 +111,8 @@ export const dashboardRouter = router({
       .sort((a, b) => (a.scheduledDate ?? "").localeCompare(b.scheduledDate ?? ""))
       .slice(0, ACTIVE_JOB_LIMIT);
 
-    const awaiting = withJoins()
-      .where(lt(jobs.scheduledDate, today))
-      .all()
+    const awaitingRaw = await withJoins().where(lt(jobs.scheduledDate, today));
+    const awaiting = awaitingRaw
       .filter((r) => r.job.status === "scheduled" || r.job.status === "confirmed")
       .map((r) => ({
         id: r.job.id,

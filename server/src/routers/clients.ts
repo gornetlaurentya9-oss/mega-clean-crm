@@ -43,12 +43,11 @@ export const clientsRouter = router({
         })
         .optional()
     )
-    .query(({ input }) => {
-      const rows = db
+    .query(async ({ input }) => {
+      const rows = await db
         .select()
         .from(clients)
-        .orderBy(desc(clients.createdAt))
-        .all();
+        .orderBy(desc(clients.createdAt));
       let result = rows.map(serialize);
       if (input?.status) {
         result = result.filter((c) => c.status === input.status);
@@ -69,46 +68,45 @@ export const clientsRouter = router({
       return result;
     }),
 
-  byId: protectedProcedure.input(z.object({ id: z.number() })).query(({ input }) => {
-    const row = db.select().from(clients).where(eq(clients.id, input.id)).get();
+  byId: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const rows = await db.select().from(clients).where(eq(clients.id, input.id));
+    const row = rows[0];
     if (!row) return null;
     return serialize(row);
   }),
 
-  create: protectedProcedure.input(clientInput).mutation(({ input }) => {
-    const row = db
+  create: protectedProcedure.input(clientInput).mutation(async ({ input }) => {
+    const [row] = await db
       .insert(clients)
       .values({
         ...input,
         serviceTypes: JSON.stringify(input.serviceTypes ?? []),
         updatedAt: new Date().toISOString(),
       })
-      .returning()
-      .get();
+      .returning();
     return serialize(row);
   }),
 
   update: protectedProcedure
     .input(clientInput.partial().extend({ id: z.number() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const { id, ...rest } = input;
       const values: Record<string, unknown> = { ...rest, updatedAt: new Date().toISOString() };
       if (rest.serviceTypes) {
         values.serviceTypes = JSON.stringify(rest.serviceTypes);
       }
-      const row = db.update(clients).set(values).where(eq(clients.id, id)).returning().get();
+      const [row] = await db.update(clients).set(values).where(eq(clients.id, id)).returning();
       return serialize(row);
     }),
 
   setStatus: protectedProcedure
     .input(z.object({ id: z.number(), status: z.enum(CLIENT_STATUSES) }))
-    .mutation(({ input }) => {
-      const row = db
+    .mutation(async ({ input }) => {
+      const [row] = await db
         .update(clients)
         .set({ status: input.status, updatedAt: new Date().toISOString() })
         .where(eq(clients.id, input.id))
-        .returning()
-        .get();
+        .returning();
       return serialize(row);
     }),
 });

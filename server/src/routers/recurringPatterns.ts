@@ -19,35 +19,35 @@ const patternInput = z.object({
 export const recurringPatternsRouter = router({
   list: protectedProcedure
     .input(z.object({ clientId: z.number().optional(), activeOnly: z.boolean().optional() }).optional())
-    .query(({ input }) => {
-      let rows = db.select().from(recurringPatterns).orderBy(desc(recurringPatterns.createdAt)).all();
+    .query(async ({ input }) => {
+      let rows = await db.select().from(recurringPatterns).orderBy(desc(recurringPatterns.createdAt));
       if (input?.clientId) rows = rows.filter((r) => r.clientId === input.clientId);
       if (input?.activeOnly) rows = rows.filter((r) => r.active);
       return rows;
     }),
 
-  create: protectedProcedure.input(patternInput).mutation(({ input }) => {
-    return db
+  create: protectedProcedure.input(patternInput).mutation(async ({ input }) => {
+    const [row] = await db
       .insert(recurringPatterns)
       .values({ ...input, updatedAt: new Date().toISOString() })
-      .returning()
-      .get();
+      .returning();
+    return row;
   }),
 
   update: protectedProcedure
     .input(patternInput.partial().extend({ id: z.number() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const { id, ...rest } = input;
-      return db
+      const [row] = await db
         .update(recurringPatterns)
         .set({ ...rest, updatedAt: new Date().toISOString() })
         .where(eq(recurringPatterns.id, id))
-        .returning()
-        .get();
+        .returning();
+      return row;
     }),
 
-  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => {
-    db.delete(recurringPatterns).where(eq(recurringPatterns.id, input.id)).run();
+  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    await db.delete(recurringPatterns).where(eq(recurringPatterns.id, input.id));
     return { success: true };
   }),
 });

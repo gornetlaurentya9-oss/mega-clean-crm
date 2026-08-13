@@ -1,17 +1,21 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, serial, real, boolean } from "drizzle-orm/pg-core";
 
+// Kept as `text` (ISO-8601 strings written by the app via `new Date().toISOString()`) rather
+// than a native Postgres `timestamp` column, so read/write behavior for createdAt/updatedAt is
+// unchanged for both the routers (which set updatedAt explicitly as a string) and the client
+// (which consumes these as strings) — this port intentionally avoids a format change here.
 const timestamps = {
   createdAt: text("created_at")
     .notNull()
-    .default(sql`(current_timestamp)`),
+    .default(sql`now()`),
   updatedAt: text("updated_at")
     .notNull()
-    .default(sql`(current_timestamp)`),
+    .default(sql`now()`),
 };
 
-export const clients = sqliteTable("clients", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const clients = pgTable("clients", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
   address: text("address").notNull().default(""),
   phone: text("phone").notNull().default(""),
@@ -31,8 +35,8 @@ export const clients = sqliteTable("clients", {
   ...timestamps,
 });
 
-export const employees = sqliteTable("employees", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const employees = pgTable("employees", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
   phone: text("phone").notNull().default(""),
   // JSON-encoded array of ServiceType strings.
@@ -44,8 +48,8 @@ export const employees = sqliteTable("employees", {
   ...timestamps,
 });
 
-export const employeeTimeOff = sqliteTable("employee_time_off", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const employeeTimeOff = pgTable("employee_time_off", {
+  id: serial("id").primaryKey(),
   employeeId: integer("employee_id")
     .notNull()
     .references(() => employees.id, { onDelete: "cascade" }),
@@ -55,8 +59,8 @@ export const employeeTimeOff = sqliteTable("employee_time_off", {
   ...timestamps,
 });
 
-export const recurringPatterns = sqliteTable("recurring_patterns", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const recurringPatterns = pgTable("recurring_patterns", {
+  id: serial("id").primaryKey(),
   clientId: integer("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),
@@ -66,12 +70,12 @@ export const recurringPatterns = sqliteTable("recurring_patterns", {
   startTime: text("start_time").notNull(), // HH:mm
   durationHours: real("duration_hours").notNull(),
   defaultEmployeeId: integer("default_employee_id"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
   ...timestamps,
 });
 
-export const jobs = sqliteTable("jobs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const jobs = pgTable("jobs", {
+  id: serial("id").primaryKey(),
   clientId: integer("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),

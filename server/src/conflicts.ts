@@ -22,23 +22,22 @@ export interface JobConflict {
 }
 
 /** Flags scheduling conflicts within a date range (inclusive, YYYY-MM-DD). */
-export function computeConflicts(from: string, to: string): JobConflict[] {
-  const rows = db
+export async function computeConflicts(from: string, to: string): Promise<JobConflict[]> {
+  const allRows = await db
     .select({ job: jobs, client: clients, employee: employees })
     .from(jobs)
     .leftJoin(clients, eq(jobs.clientId, clients.id))
     .leftJoin(employees, eq(jobs.employeeId, employees.id))
-    .where(and(gte(jobs.scheduledDate, from), lte(jobs.scheduledDate, to)))
-    .all()
-    // Only non-cancelled, still-active jobs can conflict. "cancelled" (no work done) and
-    // "cancelled-partial" (work already wrapped up and billed) are resolved/historical — they
-    // must never keep flagging a conflict, and cancelling one job in a double-booking must clear
-    // the flag on the other.
-    .filter(
-      (r) => r.job.status !== "cancelled" && r.job.status !== "cancelled-partial" && r.job.employeeId != null
-    );
+    .where(and(gte(jobs.scheduledDate, from), lte(jobs.scheduledDate, to)));
+  // Only non-cancelled, still-active jobs can conflict. "cancelled" (no work done) and
+  // "cancelled-partial" (work already wrapped up and billed) are resolved/historical — they
+  // must never keep flagging a conflict, and cancelling one job in a double-booking must clear
+  // the flag on the other.
+  const rows = allRows.filter(
+    (r) => r.job.status !== "cancelled" && r.job.status !== "cancelled-partial" && r.job.employeeId != null
+  );
 
-  const timeOffRows = db.select().from(employeeTimeOff).all();
+  const timeOffRows = await db.select().from(employeeTimeOff);
   const conflicts: JobConflict[] = [];
 
   for (const row of rows) {
