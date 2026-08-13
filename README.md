@@ -78,10 +78,88 @@ The four service types (`Deep cleaning`, `Regular cleaning – commercial`, `Reg
 
 - **Clients** (`/clients`) — searchable/filterable list, fast-entry add form (only name + phone required), detail page with prominent access notes and inline recurring-pattern management.
 - **Employees** (`/employees`) — list, add/edit, active/inactive toggle, time-off date ranges.
-- **Weekly roster** (`/roster`) — "Generate this week from patterns" turns active recurring patterns into job rows for the displayed week (idempotent — re-running skips dates that already have a job for that client). Toggle between a by-day and by-employee view, edit/cancel any job or add a one-off job, and see roster conflicts flagged inline (double-booking, employee on time off, employee not qualified for the service). A printable per-employee weekly view is linked from the by-employee tab.
+- **Weekly roster** (`/roster`) — "Generate this week from patterns" turns active recurring patterns into job rows for the displayed week (idempotent — re-running skips dates that already have a job for that client, and survives reschedules, see below). Toggle between a by-day and by-employee view; edit, reschedule, cancel, or complete any job, or add a one-off job. Roster conflicts (double-booking, employee on time off, employee not qualified for the service) are flagged inline and recomputed live on every load — see [Conflict detection](#conflict-detection). A printable per-employee weekly view is linked from the by-employee tab.
 - **Tomorrow's messages** (`/tomorrow`) — every scheduled/confirmed job for tomorrow with a pre-filled reminder text and a Copy / Copy all button.
-- **Monthly invoice prep** (`/invoicing`) — pick a month, see every completed job grouped by client with computed totals, export to CSV. Includes paused/inactive clients' history.
-- **Dashboard** (`/`) — this week's job count, month-to-date revenue from completed jobs, unresolved roster conflicts, and jobs awaiting completion (past-dated, still scheduled/confirmed).
+- **Monthly invoice prep** (`/invoicing`) — pick a month, see every completed (and partially-completed-then-cancelled) job grouped by client with computed totals, export to CSV. Includes paused/inactive clients' history. Plain cancelled jobs (no work done) never appear here.
+- **Import** (`/import`) — bulk CSV import for Clients and Employees, with a validated preview before anything is committed — see [CSV import](#csv-import).
+- **Dashboard** (`/`) — the four Phase 1 stats (this week's job count, month-to-date revenue, unresolved roster conflicts, jobs awaiting completion) plus three lightweight Phase 2 sections aimed at a phone-in-the-evening glance: today/tomorrow's remaining jobs, the active conflicts list (with day/time and a link into the roster), and jobs awaiting completion confirmation with an inline "mark complete" button. Deliberately kept to "at a glance" — no charts, trends, or full analytics.
+
+## Cancellation & reschedule model
+
+A job's `status` is one of `scheduled`, `confirmed`, `completed`, `cancelled`, `cancelled-partial`, `rescheduled` (`rescheduled` is a legacy/reserved value — see below). The two cancellation statuses encode two different real-world situations rather than forcing the owner to mis-mark a job as "completed" just to get paid:
+
+- **`cancelled`** — nothing was done. The client cancelled ahead of time (or the owner is reversing a mistaken "completed"). `actualHours` is cleared to `null`. It's excluded from the invoice export and from active conflict detection, and shows struck-through/greyed on the roster rather than disappearing outright (so there's still a record of what was booked).
+- **`cancelled-partial`** — real work happened before/around the cancellation: a partial visit, or a job the owner had already marked `completed` that the client later disputed or cancelled, where the crew still did the work and should still be paid. `actualHours` (and optional `completionNotes`) are recorded and preserved, and the job **still counts toward revenue in the monthly invoice export**, exactly like a normal `completed` job — the invoicing/dashboard revenue queries treat `completed` and `cancelled-partial` as the same "billable" set.
+
+Both are reached through a single `jobs.cancel` mutation (`{ id, actualHours?, completionNotes? }`) — passing a positive `actualHours` produces `cancelled-partial`, omitting it (or passing 0) produces plain `cancelled`. The Cancel button on the roster opens a small modal that asks "no work done" vs "work was done first" up front, so the owner never has to remember the rule. This mutation is intentionally allowed from any current status (including `completed`), which is what makes the "reverse a completed job into a paid partial cancellation" case possible. The `JobModal` (plain edit) no longer exposes cancellation as a raw status option — cancelling always goes through this flow so the hours are captured correctly.
+
+**Rescheduling** (`jobs.reschedule`) moves a job's date/time (and optionally employee) **in place on the same row** — it never creates a new Job and orphans the old one, so the roster/weekly grid immediately reflects the new date and nothing duplicates. Status resets to `scheduled` since the new slot needs reconfirming. It's blocked once a job is `completed`/`cancelled`/`cancelled-partial` (reverse or re-add instead).
+
+To keep `generateWeek` idempotent across reschedules, `jobs.originalDate` records the date a pattern-generated job was *originally* created for, separately from `jobs.scheduledDate` (which moves on reschedule). `generateWeek`'s duplicate check now skips a slot if **either** (a) any job already sits on that client+date (the normal case, and it also catches a job rescheduled *into* a date the pattern would generate for), **or** (b) a job from that same recurring pattern was originally generated for that date, even if it has since moved elsewhere (this is what stops regenerating the week a job was rescheduled *out of* from recreating a duplicate at the old slot).
+
+## Conflict detection
+
+`computeConflicts(from, to)` (`server/src/conflicts.ts`) is a pure, stateless read: on every call it re-queries current jobs, employee time-off, and employee qualifications and recomputes from scratch — nothing is cached from generation time. Practically, that means:
+
+- Marking an employee on time-off/sick leave **after** jobs were already generated and assigned retroactively flags every affected existing job the next time conflicts are queried (no regeneration needed).
+- Editing an employee's qualified service types after jobs were assigned retroactively flags jobs for service types they're no longer qualified for.
+- Rescheduling a job onto a slot that now double-books the employee, or onto a day they're unavailable, is flagged as soon as the reschedule is saved (the roster invalidates the conflicts query on every mutation).
+- Only non-`cancelled`/non-`cancelled-partial` jobs are considered — cancelling one of two double-booked jobs immediately clears the conflict on the remaining one.
+- Overlap is a real interval check (`start < otherEnd && otherStart < end`), so back-to-back jobs for the same employee (e.g. 9–11am then 11am–1pm) are correctly *not* flagged — only actual time overlaps count.
+
+## CSV import
+
+`/import` supports two CSV uploads — Clients and Employees — with client-side parsing (`papaparse`) and a full validation preview before anything is written. Only rows with zero errors **and** no detected duplicate are committed; every other row is skipped and the reason shown. Enum-like fields (service types, frequency, status, etc.) are matched case-insensitively but strictly against the same fixed vocab used everywhere else in the app — an unrecognized value blocks that row with a clear message rather than being silently dropped or guessed.
+
+**Duplicate handling**: a row is treated as a duplicate (and skipped, never silently double-created) if its name+phone (case-insensitive, trimmed) exactly matches an existing client/employee already in the database, *or* an earlier row already in the same CSV file.
+
+Prepare your files as plain CSV with a header row exactly matching the column names below (case-insensitive is fine for the header text itself is not required, but stick to these names — the importer does not fuzzy-match different column names). Leave a cell blank to use the default.
+
+### Clients CSV — expected columns, in order
+
+| # | Column | Required | Type / accepted values | Default if blank |
+|---|---|---|---|---|
+| 1 | `name` | **Yes** | free text | — |
+| 2 | `phone` | **Yes** | free text | — |
+| 3 | `address` | No | free text | `""` |
+| 4 | `email` | No | must look like an email if present (`x@y.z`) | `""` |
+| 5 | `serviceTypes` | No | one or more of: `Deep cleaning`, `Regular cleaning – commercial`, `Regular cleaning – domestic`, `Carpet cleaning` — separate multiple with `;` (semicolon), e.g. `Deep cleaning;Carpet cleaning`. Case-insensitive, but must match one of these exactly otherwise. Note "commercial"/"domestic" use an en dash (–), not a hyphen. | `[]` (none) |
+| 6 | `defaultFrequency` | No | one of: `weekly`, `fortnightly`, `monthly`, `one-off` | `weekly` |
+| 7 | `preferredDay` | No | one of: `monday`, `tuesday`, `wednesday`, `thursday`, `friday`, `saturday`, `sunday` | none |
+| 8 | `preferredTimeWindow` | No | free text, e.g. `9-11am` | `""` |
+| 9 | `defaultDurationHours` | No | positive number, e.g. `2` or `1.5` | none |
+| 10 | `defaultEmployeeName` | No | must match an **existing employee's name** exactly (case-insensitive) — import employees first if you want this filled in. If no employee matches, only this field is skipped (with a warning) — the rest of the row still imports with no default employee set. | unassigned |
+| 11 | `accessNotes` | No | free text (key/lockbox code, alarm code, pets, parking, etc.) | `""` |
+| 12 | `billingRate` | No | non-negative number, e.g. `85` | `0` |
+| 13 | `billingRateType` | No | one of: `per-hour`, `per-visit` | `per-visit` |
+| 14 | `status` | No | one of: `active`, `paused`, `inactive` | `active` |
+| 15 | `notes` | No | free text | `""` |
+
+Example row:
+
+```csv
+name,phone,address,email,serviceTypes,defaultFrequency,preferredDay,preferredTimeWindow,defaultDurationHours,defaultEmployeeName,accessNotes,billingRate,billingRateType,status,notes
+Jane Doe,555-1111,12 Main St,jane@example.com,Deep cleaning;Carpet cleaning,weekly,monday,9-11am,2,Alice Smith,Gate code 1234,85,per-visit,active,VIP client
+```
+
+### Employees CSV — expected columns, in order
+
+| # | Column | Required | Type / accepted values | Default if blank |
+|---|---|---|---|---|
+| 1 | `name` | **Yes** | free text | — |
+| 2 | `phone` | No | free text | `""` |
+| 3 | `qualifiedServiceTypes` | No | one or more of: `Deep cleaning`, `Regular cleaning – commercial`, `Regular cleaning – domestic`, `Carpet cleaning`, `;`-separated | `[]` (none) |
+| 4 | `hourlyPayRate` | No | non-negative number, e.g. `24.50` | none |
+| 5 | `status` | No | one of: `active`, `inactive` | `active` |
+
+Example row:
+
+```csv
+name,phone,qualifiedServiceTypes,hourlyPayRate,status
+Alice Smith,555-9999,Deep cleaning;Regular cleaning – domestic,25,active
+```
+
+Import employees **before** clients if you want the clients' `defaultEmployeeName` column to resolve — the importer matches by the employee's current name at import time, not by re-checking after the employees import finishes.
 
 ## Deviations & Phase 2 ideas
 
@@ -91,13 +169,11 @@ Deviations from the spec made during the build, with rationale:
 - **"Generate next week"** generates jobs for whatever week is currently displayed in the roster (with prev/next navigation), rather than being hard-coded to "next calendar week" — this is more flexible for catching up if a week was missed.
 - **Employee CRUD was built (and committed) before Client CRUD**, reversing the spec's listed order — the client form's "default employee" field needs the employees list to exist for a typed tRPC call, so employees had to land first.
 - **Sessions are stateless** (signed cookie, no server-side session table) since there's only ever one logged-in user — simpler than adding a sessions table for no real benefit at this scale.
+- **`cancelled-partial` is a new job status**, not part of the original Phase 1 `JOB_STATUSES` — see [Cancellation & reschedule model](#cancellation--reschedule-model) for the reasoning. The pre-existing `rescheduled` status is left in the enum for backwards compatibility but is no longer set by the app — `jobs.reschedule` moves a job in place and resets it to `scheduled` instead of using a separate status, so the roster only ever needs to look at one row per job.
+- **CSV import runs entirely client-side** (parsing with `papaparse`, validation in `client/src/lib/csvImport.ts`) and commits by calling the existing `clients.create` / `employees.create` mutations once per valid row, rather than adding a dedicated bulk-insert endpoint — simplest option for a one-time ~65-row import, and it reuses the exact same server-side validation every other create path goes through.
 
-Explicitly out of scope for Phase 1 (per the spec) and left for later:
+Explicitly out of scope for this round (per the spec) and left for later:
 
-- Dashboard analytics beyond the four MVP stats.
-- Cancellation workflow polish (e.g. notifying the client, rescheduling wizard).
-- CSV import of existing clients.
-- Quotes.
-- Payroll.
-- Job photos.
-- Employee accounts / logins.
+- Notifying clients automatically on cancellation/reschedule (currently the owner still texts them manually, same as the existing "Tomorrow's messages" flow).
+- Payroll, quotes, job photos, employee accounts/logins.
+- Dashboard analytics beyond the lightweight "at a glance" sections above (trends, charts, per-employee performance, etc.).
