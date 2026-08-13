@@ -3,16 +3,23 @@ import { Link } from "wouter";
 import { addDays, format, parseISO, startOfWeek } from "date-fns";
 import { trpc } from "../lib/trpc";
 import { DAY_LABELS } from "../lib/constants";
-import { Badge, Button, Card, EmptyState, Spinner } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Spinner, cx } from "../components/ui";
 import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
+import { CancelJobModal } from "../components/CancelJobModal";
+import { RescheduleModal } from "../components/RescheduleModal";
 
 const statusTone: Record<string, "gray" | "green" | "yellow" | "red" | "blue"> = {
   scheduled: "blue",
   confirmed: "green",
   completed: "gray",
   cancelled: "red",
+  "cancelled-partial": "yellow",
   rescheduled: "yellow",
+};
+
+const statusLabel: Record<string, string> = {
+  "cancelled-partial": "cancelled (partial billed)",
 };
 
 export default function Roster() {
@@ -21,6 +28,8 @@ export default function Roster() {
   const [editJob, setEditJob] = useState<any>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [completeJob, setCompleteJob] = useState<any>(null);
+  const [cancelJob, setCancelJob] = useState<any>(null);
+  const [rescheduleJob, setRescheduleJob] = useState<any>(null);
 
   const weekEnd = format(addDays(parseISO(weekStart), 6), "yyyy-MM-dd");
   const utils = trpc.useUtils();
@@ -68,17 +77,24 @@ export default function Roster() {
 
   function JobRow({ job }: { job: any }) {
     const jobConflicts = conflictsByJob.get(job.id) ?? [];
+    const cancelled = job.status === "cancelled" || job.status === "cancelled-partial";
     return (
       <div
-        className={`rounded-lg border p-2.5 ${jobConflicts.length ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"}`}
+        className={cx(
+          "rounded-lg border p-2.5",
+          jobConflicts.length ? "border-red-300 bg-red-50" : cancelled ? "border-gray-200 bg-gray-50" : "border-gray-200 bg-white"
+        )}
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="font-medium text-gray-900">
+          <div className={cx("min-w-0", cancelled && "opacity-60")}>
+            <div className={cx("font-medium text-gray-900", cancelled && "line-through")}>
               {job.startTime} · {job.clientName}
             </div>
             <div className="text-xs text-gray-500">
               {job.serviceType} · {job.employeeName ?? "Unassigned"} · {job.plannedDurationHours}h
+              {job.status === "cancelled-partial" && job.actualHours != null && (
+                <> · billed {job.actualHours}h</>
+              )}
             </div>
             {jobConflicts.map((m, i) => (
               <div key={i} className="mt-1 text-xs font-medium text-red-700">
@@ -87,16 +103,26 @@ export default function Roster() {
             ))}
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Badge tone={statusTone[job.status] ?? "gray"}>{job.status}</Badge>
+            <Badge tone={statusTone[job.status] ?? "gray"}>{statusLabel[job.status] ?? job.status}</Badge>
           </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" variant="secondary" onClick={() => setEditJob(job)}>
             Edit
           </Button>
-          {job.status !== "completed" && job.status !== "cancelled" && (
+          {job.status !== "completed" && !cancelled && (
             <Button size="sm" onClick={() => setCompleteJob(job)}>
               Mark complete
+            </Button>
+          )}
+          {job.status !== "completed" && !cancelled && (
+            <Button size="sm" variant="secondary" onClick={() => setRescheduleJob(job)}>
+              Reschedule
+            </Button>
+          )}
+          {!cancelled && (
+            <Button size="sm" variant="danger" onClick={() => setCancelJob(job)}>
+              Cancel
             </Button>
           )}
         </div>
@@ -189,6 +215,8 @@ export default function Roster() {
       <JobModal open={addOpen} onClose={() => setAddOpen(false)} defaultDate={weekStart} />
       <JobModal open={!!editJob} onClose={() => setEditJob(null)} job={editJob} />
       <CompleteJobModal open={!!completeJob} onClose={() => setCompleteJob(null)} job={completeJob} />
+      <CancelJobModal open={!!cancelJob} onClose={() => setCancelJob(null)} job={cancelJob} />
+      <RescheduleModal open={!!rescheduleJob} onClose={() => setRescheduleJob(null)} job={rescheduleJob} />
     </div>
   );
 }

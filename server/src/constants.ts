@@ -20,11 +20,15 @@ export type EmployeeStatus = (typeof EMPLOYEE_STATUSES)[number];
 export const BILLING_RATE_TYPES = ["per-hour", "per-visit"] as const;
 export type BillingRateType = (typeof BILLING_RATE_TYPES)[number];
 
+// "cancelled" = cancelled before any work was done — no hours, nothing owed, never billed.
+// "cancelled-partial" = cancelled after partial (or disputed-after-complete) work — carries
+// actualHours and still counts toward billing/invoicing. See README for the full rationale.
 export const JOB_STATUSES = [
   "scheduled",
   "confirmed",
   "completed",
   "cancelled",
+  "cancelled-partial",
   "rescheduled",
 ] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];

@@ -30,7 +30,13 @@ export function computeConflicts(from: string, to: string): JobConflict[] {
     .leftJoin(employees, eq(jobs.employeeId, employees.id))
     .where(and(gte(jobs.scheduledDate, from), lte(jobs.scheduledDate, to)))
     .all()
-    .filter((r) => r.job.status !== "cancelled" && r.job.employeeId != null);
+    // Only non-cancelled, still-active jobs can conflict. "cancelled" (no work done) and
+    // "cancelled-partial" (work already wrapped up and billed) are resolved/historical — they
+    // must never keep flagging a conflict, and cancelling one job in a double-booking must clear
+    // the flag on the other.
+    .filter(
+      (r) => r.job.status !== "cancelled" && r.job.status !== "cancelled-partial" && r.job.employeeId != null
+    );
 
   const timeOffRows = db.select().from(employeeTimeOff).all();
   const conflicts: JobConflict[] = [];

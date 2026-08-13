@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/employees", label: "Staff", icon: "🧑‍🔧" },
   { href: "/tomorrow", label: "Tomorrow", icon: "💬" },
   { href: "/invoicing", label: "Invoicing", icon: "🧾" },
+  { href: "/import", label: "Import", icon: "📥" },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {

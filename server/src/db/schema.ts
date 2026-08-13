@@ -77,7 +77,12 @@ export const jobs = sqliteTable("jobs", {
     .references(() => clients.id, { onDelete: "cascade" }),
   employeeId: integer("employee_id"),
   serviceType: text("service_type").notNull(),
-  scheduledDate: text("scheduled_date").notNull(), // YYYY-MM-DD
+  scheduledDate: text("scheduled_date").notNull(), // YYYY-MM-DD — the CURRENT date this job is on (moves on reschedule).
+  // The date this job was originally generated for by a recurring pattern (set once, never changes).
+  // Lets `generateWeek` tell "already generated, then rescheduled elsewhere" apart from "never generated" —
+  // without it, rescheduling a pattern-generated job out of a week would make that week's regeneration
+  // recreate a duplicate at the old slot. Null for one-off/manually-added jobs.
+  originalDate: text("original_date"),
   startTime: text("start_time").notNull(), // HH:mm
   plannedDurationHours: real("planned_duration_hours").notNull(),
   status: text("status").notNull().default("scheduled"),

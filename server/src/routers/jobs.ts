@@ -1,11 +1,16 @@
 import { z } from "zod";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, eq, gte, lte, or } from "drizzle-orm";
 import { addDays, format, parseISO, getISOWeek, getDate } from "date-fns";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
 import { jobs, clients, employees, recurringPatterns } from "../db/schema.js";
 import { SERVICE_TYPES, JOB_STATUSES, DAYS_OF_WEEK } from "../constants.js";
 import { computeConflicts } from "../conflicts.js";
+
+// Job statuses that count as "completed real work" for billing purposes — a fully completed
+// job, or one cancelled partway through/after completion where actual hours were recorded.
+const BILLABLE_STATUSES = ["completed", "cancelled-partial"] as const;
 
 const jobInput = z.object({
   clientId: z.number(),
@@ -92,14 +97,74 @@ export const jobsRouter = router({
         .get();
     }),
 
-  cancel: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => {
-    return db
-      .update(jobs)
-      .set({ status: "cancelled", updatedAt: new Date().toISOString() })
-      .where(eq(jobs.id, input.id))
-      .returning()
-      .get();
-  }),
+  // Cancel a job. Two real-world cases, one endpoint:
+  //  - No hours worked (client cancelled before the visit, or the owner is reversing a
+  //    mistaken "completed"): omit `actualHours` (or pass 0) → status "cancelled", no hours,
+  //    never billed, never shows in the invoice export.
+  //  - Real work happened before/around the cancellation (partial visit, or a "completed" job
+  //    the client later disputed/cancelled but the crew still needs paying for the time spent):
+  //    pass `actualHours` > 0 → status "cancelled-partial", which keeps those hours and still
+  //    counts toward billing in the monthly export, same as a normal completed job.
+  cancel: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        actualHours: z.number().min(0).optional(),
+        completionNotes: z.string().optional(),
+      })
+    )
+    .mutation(({ input }) => {
+      const billable = !!input.actualHours && input.actualHours > 0;
+      return db
+        .update(jobs)
+        .set({
+          status: billable ? "cancelled-partial" : "cancelled",
+          actualHours: billable ? input.actualHours : null,
+          completionNotes: input.completionNotes ?? null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(jobs.id, input.id))
+        .returning()
+        .get();
+    }),
+
+  // Move a job to a new date/time (and optionally reassign the employee) IN PLACE — same row,
+  // same id, so nothing is orphaned or duplicated. Resets status to "scheduled" since it needs
+  // reconfirming at the new slot. Not allowed once a job is cancelled/completed — reverse or
+  // re-add instead.
+  reschedule: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        scheduledDate: z.string(),
+        startTime: z.string(),
+        employeeId: z.number().int().optional().nullable(),
+      })
+    )
+    .mutation(({ input }) => {
+      const existing = db.select().from(jobs).where(eq(jobs.id, input.id)).get();
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      }
+      if (["cancelled", "cancelled-partial", "completed"].includes(existing.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Cannot reschedule a ${existing.status} job.`,
+        });
+      }
+      return db
+        .update(jobs)
+        .set({
+          scheduledDate: input.scheduledDate,
+          startTime: input.startTime,
+          employeeId: input.employeeId !== undefined ? input.employeeId : existing.employeeId,
+          status: "scheduled",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(jobs.id, input.id))
+        .returning()
+        .get();
+    }),
 
   complete: protectedProcedure
     .input(
@@ -151,10 +216,23 @@ export const jobsRouter = router({
         }
         if (pattern.frequency === "one-off") continue;
 
+        // Dedupe against two things:
+        //  1. Any job (pattern-generated or one-off) already sitting on this client+date — the
+        //     plain "don't double-book the same client/date" case, including a job that was
+        //     rescheduled INTO this date and now happens to land on the same slot the pattern
+        //     would generate.
+        //  2. A job from THIS pattern whose original (as-generated) date was this date, even if
+        //     it has since been rescheduled to a different date — without this, regenerating a
+        //     week that a job was rescheduled OUT of would recreate a duplicate at the old slot.
         const existing = db
           .select()
           .from(jobs)
-          .where(and(eq(jobs.clientId, pattern.clientId), eq(jobs.scheduledDate, dateStr)))
+          .where(
+            and(
+              eq(jobs.clientId, pattern.clientId),
+              or(eq(jobs.scheduledDate, dateStr), and(eq(jobs.recurringPatternId, pattern.id), eq(jobs.originalDate, dateStr)))
+            )
+          )
           .all();
         if (existing.length > 0) {
           skipped.push({ clientId: pattern.clientId, date: dateStr, reason: "Job already exists" });
@@ -168,6 +246,7 @@ export const jobsRouter = router({
             employeeId: pattern.defaultEmployeeId ?? null,
             serviceType: pattern.serviceType,
             scheduledDate: dateStr,
+            originalDate: dateStr,
             startTime: pattern.startTime,
             plannedDurationHours: pattern.durationHours,
             status: "scheduled",
@@ -204,12 +283,20 @@ export const jobsRouter = router({
       return rows;
     }),
 
-  // Completed jobs for a given month (YYYY-MM), including paused/inactive clients' history.
+  // Completed (and partially-completed-then-cancelled) jobs for a given month (YYYY-MM),
+  // including paused/inactive clients' history. Jobs cancelled with no hours worked are
+  // excluded — nothing was done, nothing is owed.
   monthlyExport: protectedProcedure.input(z.object({ month: z.string() })).query(({ input }) => {
     const from = `${input.month}-01`;
     const to = `${input.month}-31`;
     const rows = withJoins()
-      .where(and(gte(jobs.scheduledDate, from), lte(jobs.scheduledDate, to), eq(jobs.status, "completed")))
+      .where(
+        and(
+          gte(jobs.scheduledDate, from),
+          lte(jobs.scheduledDate, to),
+          or(...BILLABLE_STATUSES.map((s) => eq(jobs.status, s)))
+        )
+      )
       .all()
       .map(flatten);
 

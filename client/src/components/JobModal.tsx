@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
-import { SERVICE_TYPES, JOB_STATUSES } from "../lib/constants";
+import { SERVICE_TYPES } from "../lib/constants";
 import { Button, Input, Modal, Select } from "./ui";
+
+// Manual status edits here are limited to the two "still upcoming" states. Completing, cancelling
+// (with or without partial hours), and rescheduling all carry side effects (billing, roster
+// visibility, conflict recompute) that need their own dedicated flows — see CompleteJobModal,
+// CancelJobModal, and RescheduleModal.
+const EDITABLE_STATUSES = ["scheduled", "confirmed"] as const;
 
 interface JobModalProps {
   open: boolean;
@@ -56,14 +62,6 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
       onClose();
     },
   });
-  const cancelJob = trpc.jobs.cancel.useMutation({
-    onSuccess: () => {
-      utils.jobs.list.invalidate();
-      utils.jobs.conflicts.invalidate();
-      onClose();
-    },
-  });
-
   function submit() {
     const payload = {
       clientId: Number(form.clientId),
@@ -141,26 +139,25 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
           </Select>
         </div>
 
-        {job && (
+        {job && (EDITABLE_STATUSES as readonly string[]).includes(job.status) && (
           <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            {JOB_STATUSES.map((s) => (
+            {EDITABLE_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
             ))}
           </Select>
         )}
+        {job && !(EDITABLE_STATUSES as readonly string[]).includes(job.status) && (
+          <p className="text-xs text-gray-500">
+            This job is {job.status.replace("-", " ")} — use the roster's Reschedule/Cancel/Complete
+            actions to change that.
+          </p>
+        )}
 
-        <div className="flex gap-2">
-          <Button className="flex-1" onClick={submit} disabled={!form.clientId || !form.scheduledDate || saving}>
-            {saving ? "Saving…" : job ? "Save changes" : "Add job"}
-          </Button>
-          {job && job.status !== "cancelled" && job.status !== "completed" && (
-            <Button variant="danger" onClick={() => cancelJob.mutate({ id: job.id })}>
-              Cancel job
-            </Button>
-          )}
-        </div>
+        <Button className="w-full" onClick={submit} disabled={!form.clientId || !form.scheduledDate || saving}>
+          {saving ? "Saving…" : job ? "Save changes" : "Add job"}
+        </Button>
       </div>
     </Modal>
   );
