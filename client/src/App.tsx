@@ -6,6 +6,8 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Employees from "./pages/Employees";
 import EmployeeDetail from "./pages/EmployeeDetail";
+import Clients from "./pages/Clients";
+import ClientDetail from "./pages/ClientDetail";
 
 function Gate() {
   const { authed, loading } = useAuth();
@@ -26,6 +28,8 @@ function Gate() {
         <Route path="/" component={Dashboard} />
         <Route path="/employees" component={Employees} />
         <Route path="/employees/:id" component={EmployeeDetail} />
+        <Route path="/clients" component={Clients} />
+        <Route path="/clients/:id" component={ClientDetail} />
         <Route>
           <div className="p-8 text-center text-gray-500">Page not found.</div>
         </Route>
