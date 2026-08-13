@@ -1,29 +1,35 @@
 import { useParams, useLocation } from "wouter";
 import { trpc } from "../lib/trpc";
-import { Badge, Button, Card, Spinner } from "../components/ui";
+import { Badge, Button, Card, SkeletonList } from "../components/ui";
 import { ClientForm, type ClientFormValues } from "../components/ClientForm";
 import { RecurringPatterns } from "../components/RecurringPatterns";
+import { useToast } from "../components/Toast";
 
 export default function ClientDetail() {
   const { id } = useParams();
   const clientId = Number(id);
   const [, navigate] = useLocation();
+  const toast = useToast();
   const utils = trpc.useUtils();
   const client = trpc.clients.byId.useQuery({ id: clientId });
   const update = trpc.clients.update.useMutation({
     onSuccess: () => {
       utils.clients.byId.invalidate({ id: clientId });
       utils.clients.list.invalidate();
+      toast.success("Client updated");
     },
+    onError: () => toast.error("Could not save client"),
   });
   const setStatus = trpc.clients.setStatus.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       utils.clients.byId.invalidate({ id: clientId });
       utils.clients.list.invalidate();
+      toast.success(`Client marked ${variables.status}`);
     },
+    onError: () => toast.error("Could not update client status"),
   });
 
-  if (client.isLoading) return <Spinner />;
+  if (client.isLoading) return <SkeletonList rows={4} />;
   if (!client.data) return <div className="p-4 text-gray-500">Client not found.</div>;
   const c = client.data;
 
@@ -40,19 +46,22 @@ export default function ClientDetail() {
 
   return (
     <div className="space-y-4">
-      <button onClick={() => navigate("/clients")} className="text-sm text-brand-700">
+      <button onClick={() => navigate("/clients")} className="text-sm font-medium text-brand-primary hover:underline">
         ← Back to clients
       </button>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold text-gray-900">{c.name}</h1>
+        <h1 className="text-2xl font-bold text-brand-navy">{c.name}</h1>
         <Badge tone={c.status === "active" ? "green" : c.status === "paused" ? "yellow" : "gray"}>{c.status}</Badge>
       </div>
 
       {c.accessNotes && (
-        <Card className="border-amber-300 bg-amber-50">
-          <h2 className="mb-1 flex items-center gap-1 font-semibold text-amber-900">🔑 Access notes</h2>
-          <p className="whitespace-pre-wrap text-amber-900">{c.accessNotes}</p>
+        <Card className="border-2 border-brand-accent/50 bg-gradient-to-br from-brand-accent/10 to-white shadow-soft-lg">
+          <h2 className="mb-1 flex items-center gap-2 font-semibold text-brand-navy">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-primary text-white">🔑</span>
+            Access notes
+          </h2>
+          <p className="mt-2 whitespace-pre-wrap text-brand-navy">{c.accessNotes}</p>
         </Card>
       )}
 

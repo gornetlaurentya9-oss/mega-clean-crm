@@ -1,37 +1,51 @@
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "../lib/trpc";
-import { Badge, Button, Card, Input, Spinner } from "../components/ui";
+import { Badge, Button, Card, Input, SkeletonList } from "../components/ui";
 import { EmployeeForm, type EmployeeFormValues } from "../components/EmployeeForm";
+import { useToast } from "../components/Toast";
 
 export default function EmployeeDetail() {
   const { id } = useParams();
   const employeeId = Number(id);
   const [, navigate] = useLocation();
+  const toast = useToast();
   const utils = trpc.useUtils();
   const employee = trpc.employees.byId.useQuery({ id: employeeId });
   const update = trpc.employees.update.useMutation({
     onSuccess: () => {
       utils.employees.byId.invalidate({ id: employeeId });
       utils.employees.list.invalidate();
+      toast.success("Employee updated");
     },
+    onError: () => toast.error("Could not save employee"),
   });
   const setStatus = trpc.employees.setStatus.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       utils.employees.byId.invalidate({ id: employeeId });
       utils.employees.list.invalidate();
+      toast.success(`Employee marked ${variables.status}`);
     },
+    onError: () => toast.error("Could not update employee status"),
   });
   const addTimeOff = trpc.employees.addTimeOff.useMutation({
-    onSuccess: () => utils.employees.byId.invalidate({ id: employeeId }),
+    onSuccess: () => {
+      utils.employees.byId.invalidate({ id: employeeId });
+      toast.success("Time off added");
+    },
+    onError: () => toast.error("Could not add time off"),
   });
   const removeTimeOff = trpc.employees.removeTimeOff.useMutation({
-    onSuccess: () => utils.employees.byId.invalidate({ id: employeeId }),
+    onSuccess: () => {
+      utils.employees.byId.invalidate({ id: employeeId });
+      toast.success("Time off removed");
+    },
+    onError: () => toast.error("Could not remove time off"),
   });
 
   const [timeOff, setTimeOff] = useState({ startDate: "", endDate: "", reason: "" });
 
-  if (employee.isLoading) return <Spinner />;
+  if (employee.isLoading) return <SkeletonList rows={4} />;
   if (!employee.data) return <div className="p-4 text-gray-500">Employee not found.</div>;
   const e = employee.data;
 
@@ -46,12 +60,12 @@ export default function EmployeeDetail() {
 
   return (
     <div className="space-y-4">
-      <button onClick={() => navigate("/employees")} className="text-sm text-brand-700">
+      <button onClick={() => navigate("/employees")} className="text-sm font-medium text-brand-primary hover:underline">
         ← Back to employees
       </button>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold text-gray-900">{e.name}</h1>
+        <h1 className="text-2xl font-bold text-brand-navy">{e.name}</h1>
         <Badge tone={e.status === "active" ? "green" : "gray"}>{e.status}</Badge>
       </div>
 
@@ -77,25 +91,33 @@ export default function EmployeeDetail() {
       </Card>
 
       <Card>
-        <h2 className="mb-2 font-semibold text-gray-900">Time off</h2>
+        <h2 className="mb-3 font-semibold text-brand-navy">Time off</h2>
         {e.timeOff && e.timeOff.length > 0 ? (
-          <ul className="mb-3 space-y-2">
+          <div className="mb-4 flex flex-wrap gap-2">
             {e.timeOff.map((t) => (
-              <li key={t.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-2 text-sm">
-                <span>
-                  {t.startDate} → {t.endDate} {t.reason && <span className="text-gray-500">({t.reason})</span>}
+              <div
+                key={t.id}
+                className="flex items-center gap-2 rounded-control border border-brand-accent/30 bg-brand-accent/5 px-3 py-2 text-sm"
+              >
+                <span className="font-medium text-brand-navy">
+                  {t.startDate} → {t.endDate}
                 </span>
-                <Button size="sm" variant="danger" onClick={() => removeTimeOff.mutate({ id: t.id })}>
-                  Remove
-                </Button>
-              </li>
+                {t.reason && <span className="text-gray-500">({t.reason})</span>}
+                <button
+                  onClick={() => removeTimeOff.mutate({ id: t.id })}
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-red-100 hover:text-red-600"
+                  aria-label="Remove time off"
+                >
+                  ✕
+                </button>
+              </div>
             ))}
-          </ul>
+          </div>
         ) : (
-          <p className="mb-3 text-sm text-gray-500">No time off recorded.</p>
+          <p className="mb-4 text-sm text-gray-500">No time off recorded.</p>
         )}
 
-        <div className="grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 rounded-control bg-gray-50 p-3 sm:grid-cols-4">
           <Input type="date" value={timeOff.startDate} onChange={(e2) => setTimeOff({ ...timeOff, startDate: e2.target.value })} />
           <Input type="date" value={timeOff.endDate} onChange={(e2) => setTimeOff({ ...timeOff, endDate: e2.target.value })} />
           <Input

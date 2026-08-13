@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { trpc } from "../lib/trpc";
 import { Button, Input, Modal, Textarea } from "./ui";
+import { useToast } from "./Toast";
 
 export function CompleteJobModal({ open, onClose, job }: { open: boolean; onClose: () => void; job?: any }) {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const [actualHours, setActualHours] = useState<string>(job ? String(job.plannedDurationHours) : "");
   const [notes, setNotes] = useState("");
 
@@ -11,8 +13,11 @@ export function CompleteJobModal({ open, onClose, job }: { open: boolean; onClos
     onSuccess: () => {
       utils.jobs.list.invalidate();
       utils.dashboard.summary.invalidate();
+      utils.dashboard.details.invalidate();
+      toast.success(job?.clientName ? `Job for ${job.clientName} marked complete` : "Job marked complete");
       onClose();
     },
+    onError: () => toast.error("Could not mark job complete"),
   });
 
   if (!job) return null;
