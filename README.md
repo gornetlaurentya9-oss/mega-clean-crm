@@ -161,6 +161,41 @@ Alice Smith,555-9999,Deep cleaning;Regular cleaning – domestic,25,active
 
 Import employees **before** clients if you want the clients' `defaultEmployeeName` column to resolve — the importer matches by the employee's current name at import time, not by re-checking after the employees import finishes.
 
+## Deploying (Render)
+
+The app deploys as a **single Render Web Service**. In production the Express server serves the built Vite frontend as static files (see the `if (IS_PRODUCTION)` block in `server/src/index.ts`) and answers the API on the same origin at `/trpc`, so there's no separate static site / CORS setup to configure — one service, one URL.
+
+**Build Command**
+```
+npm install && npm run build
+```
+This installs both workspaces and builds the server (`tsc`) and client (`vite build`) into `server/dist` and `client/dist`.
+
+**Start Command**
+```
+npm start
+```
+This runs any pending Drizzle migrations (`npm run db:migrate -w server`, idempotent — safe to run on every deploy/restart) and then starts the compiled server (`node server/dist/index.js`).
+
+**Environment variables to set in Render's dashboard**
+
+| Variable | Required | Notes |
+|---|---|---|
+| `ADMIN_PASSWORD` | Yes | The owner's login password. The `changeme123` dev default in `.env.example` must be overridden — the code has no built-in production guard against using it. |
+| `SESSION_SECRET` | Yes | Random secret used to sign the session cookie (e.g. `openssl rand -hex 32`). Must be overridden from the dev default. |
+| `NODE_ENV` | Yes | Set to `production`. This is what switches the server into "serve the built frontend" mode. |
+| `DATABASE_PATH` | Recommended | Path to the SQLite file, e.g. `./data/mega-clean.sqlite`. If unset it defaults to the same relative path, created automatically. |
+| `PORT` | No | Render sets this automatically and the server already reads `process.env.PORT` (falling back to `4000` only for local dev) — don't override it. |
+| `CLIENT_ORIGIN` | No | Only matters for cross-origin dev setups; harmless to leave unset in production since the frontend is served same-origin. |
+
+`VITE_API_URL` (client-side) is **not** needed in production — it's a build-time variable that defaults to same-origin (`""`, i.e. relative `/trpc` requests) whenever the client is built with `NODE_ENV=production`/Vite's production mode, which `vite build` sets automatically. Don't set it in Render unless you deliberately split the frontend and API into separate services later.
+
+**A note on the database for when that step happens later:** this app currently uses a local SQLite file (`better-sqlite3`) written to disk at `DATABASE_PATH`. Render's Web Service filesystem is ephemeral by default — anything written to disk is lost on redeploy or restart unless a persistent Disk is attached to the service (or the app is pointed at a hosted database instead). That's expected and fine for now since we're intentionally staying on the local dev database until the dedicated "connect to production database" step; just flagging it so it isn't a surprise when that step comes up.
+
+**Confirmed already in place:**
+- The server reads its port from `process.env.PORT` (`server/src/index.ts`), falling back to `4000` only when unset — Render's dynamically assigned port is picked up automatically.
+- `.env` is listed in `.gitignore` (along with `*.sqlite*` and `server/data/`), and only `server/.env.example` / `client/.env.example` are committed. `git log --all` shows no `.env` file has ever been tracked or pushed to GitHub.
+
 ## Deviations & Phase 2 ideas
 
 Deviations from the spec made during the build, with rationale:
