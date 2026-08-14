@@ -4,15 +4,16 @@ import { trpc } from "../lib/trpc";
 import { useAuth } from "../hooks/useAuth";
 import { cx } from "./ui";
 import { Logo } from "./Logo";
+import { CalendarIcon, HomeIcon, ImportIcon, MessageIcon, ReceiptIcon, StaffIcon, UsersIcon } from "./Icons";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Home", icon: "🏠" },
-  { href: "/roster", label: "Roster", icon: "🗓️" },
-  { href: "/clients", label: "Clients", icon: "👥" },
-  { href: "/employees", label: "Staff", icon: "🧑‍🔧" },
-  { href: "/tomorrow", label: "Tomorrow", icon: "💬" },
-  { href: "/invoicing", label: "Invoicing", icon: "🧾" },
-  { href: "/import", label: "Import", icon: "📥" },
+  { href: "/", label: "Home", Icon: HomeIcon },
+  { href: "/roster", label: "Roster", Icon: CalendarIcon },
+  { href: "/clients", label: "Clients", Icon: UsersIcon },
+  { href: "/employees", label: "Staff", Icon: StaffIcon },
+  { href: "/tomorrow", label: "Tomorrow", Icon: MessageIcon },
+  { href: "/invoicing", label: "Invoicing", Icon: ReceiptIcon },
+  { href: "/import", label: "Import", Icon: ImportIcon },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -50,9 +51,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                 active ? "text-brand-primary" : "text-gray-500 hover:text-brand-accent"
               )}
             >
-              <span className={cx("text-lg leading-none transition-transform duration-150", active && "scale-110")}>
-                {item.icon}
-              </span>
+              <item.Icon
+                size={22}
+                className={cx("transition-transform duration-150", active && "scale-110")}
+                strokeWidth={active ? 2 : 1.75}
+              />
               {item.label}
               {active && <span className="mt-0.5 h-1 w-1 rounded-full bg-brand-primary" aria-hidden="true" />}
             </Link>

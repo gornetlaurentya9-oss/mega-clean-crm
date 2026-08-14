@@ -4,6 +4,7 @@ import { format, parseISO } from "date-fns";
 import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, EmptyState, Skeleton, SkeletonList } from "../components/ui";
 import { CompleteJobModal } from "../components/CompleteJobModal";
+import { ArrowRightIcon, SparkleIcon } from "../components/Icons";
 
 function IconCalendar() {
   return (
@@ -104,8 +105,8 @@ function SectionCard({
           {title}
         </h2>
         {href && (
-          <Link href={href} className="text-xs font-medium text-brand-primary hover:underline">
-            {hrefLabel} →
+          <Link href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-brand-primary hover:underline">
+            {hrefLabel} <ArrowRightIcon size={13} />
           </Link>
         )}
       </div>
@@ -223,7 +224,11 @@ export default function Dashboard() {
             toneClass={conflictCount > 0 ? "border-red-300 bg-red-50" : undefined}
           >
             {details.data.conflictDetails.length === 0 ? (
-              <EmptyState>No conflicts right now. 🎉</EmptyState>
+              <EmptyState>
+                <span className="inline-flex items-center gap-1.5">
+                  <SparkleIcon size={16} className="text-brand-accent" /> No conflicts right now.
+                </span>
+              </EmptyState>
             ) : (
               <ul className="space-y-2">
                 {details.data.conflictDetails.map((c, i) => (

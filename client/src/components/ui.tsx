@@ -7,6 +7,7 @@ import {
   type TextareaHTMLAttributes,
   type ReactNode,
 } from "react";
+import { CloseIcon } from "./Icons";
 
 export function cx(...classes: (string | false | undefined | null)[]) {
   return classes.filter(Boolean).join(" ");
@@ -158,7 +159,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
             className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent"
             aria-label="Close"
           >
-            ✕
+            <CloseIcon size={18} />
           </button>
         </div>
         {children}

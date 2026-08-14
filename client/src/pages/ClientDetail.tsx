@@ -4,6 +4,7 @@ import { Badge, Button, Card, SkeletonList } from "../components/ui";
 import { ClientForm, type ClientFormValues } from "../components/ClientForm";
 import { RecurringPatterns } from "../components/RecurringPatterns";
 import { useToast } from "../components/Toast";
+import { ChevronLeftIcon, KeyIcon } from "../components/Icons";
 
 export default function ClientDetail() {
   const { id } = useParams();
@@ -46,8 +47,11 @@ export default function ClientDetail() {
 
   return (
     <div className="space-y-4">
-      <button onClick={() => navigate("/clients")} className="text-sm font-medium text-brand-primary hover:underline">
-        ← Back to clients
+      <button
+        onClick={() => navigate("/clients")}
+        className="inline-flex items-center gap-1 text-sm font-medium text-brand-primary hover:underline"
+      >
+        <ChevronLeftIcon size={16} /> Back to clients
       </button>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -58,7 +62,9 @@ export default function ClientDetail() {
       {c.accessNotes && (
         <Card className="border-2 border-brand-accent/50 bg-gradient-to-br from-brand-accent/10 to-white shadow-soft-lg">
           <h2 className="mb-1 flex items-center gap-2 font-semibold text-brand-navy">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-primary text-white">🔑</span>
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-primary text-white">
+              <KeyIcon size={16} />
+            </span>
             Access notes
           </h2>
           <p className="mt-2 whitespace-pre-wrap text-brand-navy">{c.accessNotes}</p>

@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { cx } from "./ui";
+import { AlertIcon, CheckIcon, CloseIcon, InfoIcon } from "./Icons";
 
 /**
  * Lightweight toast notification system.
@@ -39,10 +40,10 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-const TONE_STYLES: Record<ToastTone, { bg: string; icon: string }> = {
-  success: { bg: "bg-emerald-600", icon: "✓" },
-  error: { bg: "bg-red-600", icon: "!" },
-  info: { bg: "bg-brand-primary", icon: "i" },
+const TONE_STYLES: Record<ToastTone, { bg: string; Icon: (props: { size?: number }) => ReactElement }> = {
+  success: { bg: "bg-emerald-600", Icon: CheckIcon },
+  error: { bg: "bg-red-600", Icon: AlertIcon },
+  info: { bg: "bg-brand-primary", Icon: InfoIcon },
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -91,8 +92,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 tone.bg
               )}
             >
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">
-                {tone.icon}
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20">
+                <tone.Icon size={13} />
               </span>
               <span className="flex-1">{t.message}</span>
               <button
@@ -100,7 +101,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 className="shrink-0 rounded-full p-1 text-white/80 transition-colors hover:bg-white/15 hover:text-white"
                 aria-label="Dismiss"
               >
-                ✕
+                <CloseIcon size={14} />
               </button>
             </div>
           );

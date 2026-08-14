@@ -4,6 +4,7 @@ import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, Input, SkeletonList } from "../components/ui";
 import { EmployeeForm, type EmployeeFormValues } from "../components/EmployeeForm";
 import { useToast } from "../components/Toast";
+import { ArrowRightIcon, ChevronLeftIcon, CloseIcon } from "../components/Icons";
 
 export default function EmployeeDetail() {
   const { id } = useParams();
@@ -60,8 +61,11 @@ export default function EmployeeDetail() {
 
   return (
     <div className="space-y-4">
-      <button onClick={() => navigate("/employees")} className="text-sm font-medium text-brand-primary hover:underline">
-        ← Back to employees
+      <button
+        onClick={() => navigate("/employees")}
+        className="inline-flex items-center gap-1 text-sm font-medium text-brand-primary hover:underline"
+      >
+        <ChevronLeftIcon size={16} /> Back to employees
       </button>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -99,8 +103,8 @@ export default function EmployeeDetail() {
                 key={t.id}
                 className="flex items-center gap-2 rounded-control border border-brand-accent/30 bg-brand-accent/5 px-3 py-2 text-sm"
               >
-                <span className="font-medium text-brand-navy">
-                  {t.startDate} → {t.endDate}
+                <span className="inline-flex items-center gap-1.5 font-medium text-brand-navy">
+                  {t.startDate} <ArrowRightIcon size={13} /> {t.endDate}
                 </span>
                 {t.reason && <span className="text-gray-500">({t.reason})</span>}
                 <button
@@ -108,7 +112,7 @@ export default function EmployeeDetail() {
                   className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-red-100 hover:text-red-600"
                   aria-label="Remove time off"
                 >
-                  ✕
+                  <CloseIcon size={13} />
                 </button>
               </div>
             ))}
