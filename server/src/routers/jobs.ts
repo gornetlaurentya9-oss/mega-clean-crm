@@ -5,7 +5,7 @@ import { addDays, format, parseISO, getISOWeek, getDate } from "date-fns";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
 import { jobs, clients, employees, recurringPatterns } from "../db/schema.js";
-import { SERVICE_TYPES, JOB_STATUSES, DAYS_OF_WEEK } from "../constants.js";
+import { SERVICE_TYPES, JOB_STATUSES, DAYS_OF_WEEK, CLIENT_RESPONSE_STATUSES } from "../constants.js";
 import { computeConflicts } from "../conflicts.js";
 
 // Job statuses that count as "completed real work" for billing purposes — a fully completed
@@ -182,6 +182,30 @@ export const jobsRouter = router({
           status: "completed",
           actualHours: input.actualHours,
           completionNotes: input.completionNotes,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(jobs.id, input.id))
+        .returning();
+      return row;
+    }),
+
+  // Toggles whether the CLIENT has flagged an issue with this job's slot — set by the owner from
+  // the roster after hearing back from a client (phone/text, outside the app) in response to a
+  // "heads-up" message. Entirely independent of the job's lifecycle `status`: doesn't block or
+  // require anything else in the app, it's just a visual flag on the roster (same treatment as a
+  // scheduling conflict, but distinguishable — see Roster.tsx).
+  setClientResponseStatus: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        clientResponseStatus: z.enum(CLIENT_RESPONSE_STATUSES),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const [row] = await db
+        .update(jobs)
+        .set({
+          clientResponseStatus: input.clientResponseStatus,
           updatedAt: new Date().toISOString(),
         })
         .where(eq(jobs.id, input.id))

@@ -8,6 +8,13 @@
       "when": 1786658816011,
       "tag": "0000_amazing_lady_ursula",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786698576548,
+      "tag": "0001_magical_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

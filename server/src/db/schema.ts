@@ -93,5 +93,10 @@ export const jobs = pgTable("jobs", {
   actualHours: real("actual_hours"),
   completionNotes: text("completion_notes"),
   recurringPatternId: integer("recurring_pattern_id"),
+  // Tracks whether the CLIENT has flagged an issue with this job's scheduled slot — independent
+  // of the job's own lifecycle `status` above. Set by the owner on the roster after hearing back
+  // from a client (by phone/text, outside the app) in response to a "heads-up" message; never
+  // set automatically and never blocks any other flow.
+  clientResponseStatus: text("client_response_status").notNull().default("confirmed"),
   ...timestamps,
 });

@@ -33,6 +33,11 @@ export const JOB_STATUSES = [
 ] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+// Tracks whether the client has flagged an issue with a scheduled job's time (via the roster's
+// "Mark: client requested change" toggle) — independent of the job's own JOB_STATUSES lifecycle.
+export const CLIENT_RESPONSE_STATUSES = ["confirmed", "change-requested"] as const;
+export type ClientResponseStatus = (typeof CLIENT_RESPONSE_STATUSES)[number];
+
 export const DAYS_OF_WEEK = [
   "monday",
   "tuesday",

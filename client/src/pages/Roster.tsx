@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { addDays, format, parseISO, startOfWeek } from "date-fns";
 import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, EmptyState, Skeleton, cx } from "../components/ui";
+import { MessageAlertIcon } from "../components/Icons";
 import { useToast } from "../components/Toast";
 import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
@@ -134,7 +135,7 @@ function ActionIconButton({
 
 export default function Roster() {
   const [weekStart, setWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"));
-  const [view, setView] = useState<"day" | "employee">("day");
+  const [view, setView] = useState<"day" | "employee" | "calendar">("day");
   const [editJob, setEditJob] = useState<any>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [completeJob, setCompleteJob] = useState<any>(null);
@@ -155,6 +156,18 @@ export default function Roster() {
       toast.success(`Generated ${res.created} job${res.created === 1 ? "" : "s"}. Skipped ${res.skipped.length} (already existed).`);
     },
     onError: () => toast.error("Could not generate this week"),
+  });
+
+  // Independent of job status/conflicts — the owner flags/clears this herself after hearing back
+  // from a client (phone/text) about a "heads-up" message. Doesn't gate or block anything else.
+  const setResponseStatus = trpc.jobs.setClientResponseStatus.useMutation({
+    onSuccess: (row) => {
+      utils.jobs.list.invalidate();
+      toast.success(
+        row?.clientResponseStatus === "change-requested" ? "Flagged: client requested a change" : "Marked confirmed"
+      );
+    },
+    onError: () => toast.error("Could not update client response status"),
   });
 
   const conflictsByJob = useMemo(() => {
@@ -192,13 +205,27 @@ export default function Roster() {
   function JobRow({ job }: { job: any }) {
     const jobConflicts = conflictsByJob.get(job.id) ?? [];
     const hasConflict = jobConflicts.length > 0;
+    const changeRequested = job.clientResponseStatus === "change-requested";
     const cancelled = job.status === "cancelled" || job.status === "cancelled-partial";
     const completed = job.status === "completed";
+
+    const responseToggle = (
+      <ActionIconButton
+        label={changeRequested ? "Mark confirmed" : "Mark: client requested change"}
+        tone={changeRequested ? "primary" : "default"}
+        onClick={() =>
+          setResponseStatus.mutate({ id: job.id, clientResponseStatus: changeRequested ? "confirmed" : "change-requested" })
+        }
+      >
+        <MessageAlertIcon className="h-4 w-4" />
+      </ActionIconButton>
+    );
+
     return (
       <div
         className={cx(
           "rounded-panel border p-3 shadow-soft transition-colors duration-150",
-          hasConflict
+          hasConflict || changeRequested
             ? "border-amber-300 bg-amber-50"
             : cancelled
               ? "border-gray-200 bg-gray-50"
@@ -229,11 +256,19 @@ export default function Roster() {
           </div>
         )}
 
+        {changeRequested && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-control border border-amber-300 bg-amber-100/60 p-2 text-xs font-medium text-amber-900">
+            <MessageAlertIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>Client requested a change</span>
+          </div>
+        )}
+
         {!completed && (
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <ActionIconButton label="Edit job" tone="primary" onClick={() => setEditJob(job)}>
               <IconEdit className="h-4 w-4" />
             </ActionIconButton>
+            {responseToggle}
             {!cancelled && (
               <>
                 <ActionIconButton label="Mark complete" tone="primary" onClick={() => setCompleteJob(job)}>
@@ -250,13 +285,48 @@ export default function Roster() {
           </div>
         )}
         {completed && (
-          <div className="mt-2.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <ActionIconButton label="Edit job" tone="primary" onClick={() => setEditJob(job)}>
               <IconEdit className="h-4 w-4" />
             </ActionIconButton>
+            {responseToggle}
           </div>
         )}
       </div>
+    );
+  }
+
+  /** Compact card used in the calendar-grid view — click opens the same edit/action modal as the
+   *  other views. Shows the same status/conflict/client-response badges for consistency. */
+  function CalendarJobCard({ job }: { job: any }) {
+    const jobConflicts = conflictsByJob.get(job.id) ?? [];
+    const hasConflict = jobConflicts.length > 0;
+    const changeRequested = job.clientResponseStatus === "change-requested";
+    const cancelled = job.status === "cancelled" || job.status === "cancelled-partial";
+    return (
+      <button
+        type="button"
+        onClick={() => setEditJob(job)}
+        className={cx(
+          "w-full rounded-control border p-2 text-left text-xs shadow-soft transition-all duration-150 hover:shadow-soft-lg active:scale-[0.98]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent",
+          hasConflict || changeRequested
+            ? "border-amber-300 bg-amber-50"
+            : cancelled
+              ? "border-gray-200 bg-gray-50"
+              : "border-gray-200 bg-white"
+        )}
+      >
+        <div className={cx("font-semibold text-gray-900", cancelled && "opacity-60 line-through")}>
+          {job.startTime} · {job.clientName}
+        </div>
+        <div className={cx("mt-0.5 text-gray-500", cancelled && "opacity-60")}>{job.employeeName ?? "Unassigned"}</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <Badge tone={statusTone[job.status] ?? "gray"}>{statusLabel[job.status] ?? job.status}</Badge>
+          {hasConflict && <IconAlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />}
+          {changeRequested && <MessageAlertIcon className="h-3.5 w-3.5 shrink-0 text-amber-600" />}
+        </div>
+      </button>
     );
   }
 
@@ -316,6 +386,9 @@ export default function Roster() {
         <Button size="sm" variant={view === "employee" ? "primary" : "secondary"} onClick={() => setView("employee")}>
           By employee
         </Button>
+        <Button size="sm" variant={view === "calendar" ? "primary" : "secondary"} onClick={() => setView("calendar")}>
+          Calendar
+        </Button>
       </div>
 
       {jobs.isLoading ? (
@@ -329,6 +402,29 @@ export default function Roster() {
           <p className="font-medium text-gray-600">Nothing generated for this week yet.</p>
           <p className="mt-1 text-sm">Use "Generate this week" to build the roster from recurring patterns, or add a one-off job.</p>
         </EmptyState>
+      ) : view === "calendar" ? (
+        <div className="overflow-x-auto pb-2">
+          <div className="flex min-w-max gap-3">
+            {days.map((d) => {
+              const dayJobs = (byDay.get(d) ?? []).sort((a, b) => a.startTime.localeCompare(b.startTime));
+              const weekday = format(parseISO(d), "EEE");
+              return (
+                <div key={d} className="w-52 shrink-0">
+                  <h2 className="mb-1.5 text-sm font-semibold text-brand-navy">
+                    {weekday} <span className="font-normal text-gray-400">{format(parseISO(d), "d MMM")}</span>
+                  </h2>
+                  <div className="space-y-2">
+                    {dayJobs.length === 0 ? (
+                      <p className="rounded-control border border-dashed border-gray-200 p-2 text-xs text-gray-400">No jobs.</p>
+                    ) : (
+                      dayJobs.map((j) => <CalendarJobCard key={j.id} job={j} />)
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : view === "day" ? (
         <div className="space-y-5">
           {days.map((d) => {

@@ -165,6 +165,27 @@ export function InfoIcon(props: IconProps) {
   );
 }
 
+export function BellIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3.5a5 5 0 0 1 5 5v3.2l1.6 3.3a1 1 0 0 1-.9 1.4H6.3a1 1 0 0 1-.9-1.4L7 11.7V8.5a5 5 0 0 1 5-5Z" />
+      <path d="M9.5 18.5a2.5 2.5 0 0 0 5 0" />
+    </svg>
+  );
+}
+
+/** Distinct from a plain message bubble — used to flag that a CLIENT has raised an issue with a
+ *  job's slot (see Roster.tsx), styled with an interior exclamation mark so it reads differently
+ *  from both a generic "message" icon and the triangular scheduling-conflict icon. */
+export function MessageAlertIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 5.5h16a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1H9l-4.5 3.5V17H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z" />
+      <path d="M12 9v3.2M12 15h.01" />
+    </svg>
+  );
+}
+
 export function ArrowRightIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

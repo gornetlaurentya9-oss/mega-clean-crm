@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "client_response_status" text DEFAULT 'confirmed' NOT NULL;
