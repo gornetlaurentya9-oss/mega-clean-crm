@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { SERVICE_TYPES } from "../lib/constants";
 import { Button, Input, Modal, Select } from "./ui";
+import { useToast } from "./Toast";
 
 // Manual status edits here are limited to the two "still upcoming" states. Completing, cancelling
 // (with or without partial hours), and rescheduling all carry side effects (billing, roster
@@ -19,6 +20,7 @@ interface JobModalProps {
 
 export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const clients = trpc.clients.list.useQuery({ status: "active" }, { enabled: open });
   const employees = trpc.employees.list.useQuery({ status: "active" }, { enabled: open });
 
@@ -52,15 +54,19 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
     onSuccess: () => {
       utils.jobs.list.invalidate();
       utils.jobs.conflicts.invalidate();
+      toast.success("Job added");
       onClose();
     },
+    onError: () => toast.error("Could not add job"),
   });
   const update = trpc.jobs.update.useMutation({
     onSuccess: () => {
       utils.jobs.list.invalidate();
       utils.jobs.conflicts.invalidate();
+      toast.success("Job updated");
       onClose();
     },
+    onError: () => toast.error("Could not update job"),
   });
   function submit() {
     const payload = {

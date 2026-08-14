@@ -4,23 +4,6 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Legacy scale — still used by screens not yet migrated to the new
-        // Mega Clean brand palette (dashboard, clients, employees, roster,
-        // job completion, monthly export). Later phases should migrate these
-        // call sites to the brand-* tokens below and this can eventually be
-        // removed.
-        brand: {
-          50: "#eefbf3",
-          100: "#d6f5e1",
-          200: "#b0eac8",
-          300: "#7bd8a9",
-          400: "#45bd87",
-          500: "#22a06d",
-          600: "#158058",
-          700: "#12654a",
-          800: "#12503c",
-          900: "#104233",
-        },
         // Real Mega Clean brand colors (from van signage / website).
         // Use these for all new/redesigned UI going forward.
         "brand-accent": "#3EB8FF", // light blue — buttons, icons, highlights, interactive accents

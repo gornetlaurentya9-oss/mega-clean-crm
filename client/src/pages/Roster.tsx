@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { addDays, format, parseISO, startOfWeek } from "date-fns";
 import { trpc } from "../lib/trpc";
-import { DAY_LABELS } from "../lib/constants";
-import { Badge, Button, Card, EmptyState, Spinner, cx } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Skeleton, cx } from "../components/ui";
+import { useToast } from "../components/Toast";
 import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
 import { CancelJobModal } from "../components/CancelJobModal";
@@ -22,6 +22,116 @@ const statusLabel: Record<string, string> = {
   "cancelled-partial": "cancelled (partial billed)",
 };
 
+function IconAlertTriangle({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.3 3.9 1.9 18a1.6 1.6 0 0 0 1.4 2.5h17.4a1.6 1.6 0 0 0 1.4-2.5L13.7 3.9a1.6 1.6 0 0 0-2.8 0Z" />
+      <path d="M12 9v4M12 16.5h.01" />
+    </svg>
+  );
+}
+
+function IconChevronLeft({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function IconChevronRight({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
+function IconSparkles({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v4M12 17v4M4 12h4M16 12h4M6.3 6.3l2.1 2.1M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1" />
+    </svg>
+  );
+}
+
+function IconPrinter({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z" />
+    </svg>
+  );
+}
+
+function IconEdit({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function IconCheck({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function IconClockArrow({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="12" r="8" />
+      <path d="M11 8v4l2.5 1.5M19 8v-3M19 8l2-1.3M19 8l-2-1.3" />
+    </svg>
+  );
+}
+
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+/** Small square icon-button used for the per-job action row — keeps a 44px tap target on mobile
+ *  without needing a full label on every button. */
+function ActionIconButton({
+  label,
+  tone = "default",
+  onClick,
+  children,
+}: {
+  label: string;
+  tone?: "default" | "primary" | "danger";
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const toneClass =
+    tone === "primary"
+      ? "border-brand-accent/40 text-brand-primary hover:bg-brand-accent/10 hover:border-brand-accent"
+      : tone === "danger"
+        ? "border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+        : "border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300";
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className={cx(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-control border bg-white transition-colors duration-150",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-1",
+        toneClass
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Roster() {
   const [weekStart, setWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"));
   const [view, setView] = useState<"day" | "employee">("day");
@@ -31,6 +141,7 @@ export default function Roster() {
   const [cancelJob, setCancelJob] = useState<any>(null);
   const [rescheduleJob, setRescheduleJob] = useState<any>(null);
 
+  const toast = useToast();
   const weekEnd = format(addDays(parseISO(weekStart), 6), "yyyy-MM-dd");
   const utils = trpc.useUtils();
   const jobs = trpc.jobs.list.useQuery({ from: weekStart, to: weekEnd });
@@ -41,8 +152,9 @@ export default function Roster() {
     onSuccess: (res) => {
       utils.jobs.list.invalidate();
       utils.jobs.conflicts.invalidate();
-      alert(`Generated ${res.created} job(s). Skipped ${res.skipped.length} (already existed).`);
+      toast.success(`Generated ${res.created} job${res.created === 1 ? "" : "s"}. Skipped ${res.skipped.length} (already existed).`);
     },
+    onError: () => toast.error("Could not generate this week"),
   });
 
   const conflictsByJob = useMemo(() => {
@@ -75,57 +187,75 @@ export default function Roster() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [jobs.data]);
 
+  const totalJobsThisWeek = jobs.data?.length ?? 0;
+
   function JobRow({ job }: { job: any }) {
     const jobConflicts = conflictsByJob.get(job.id) ?? [];
+    const hasConflict = jobConflicts.length > 0;
     const cancelled = job.status === "cancelled" || job.status === "cancelled-partial";
+    const completed = job.status === "completed";
     return (
       <div
         className={cx(
-          "rounded-lg border p-2.5",
-          jobConflicts.length ? "border-red-300 bg-red-50" : cancelled ? "border-gray-200 bg-gray-50" : "border-gray-200 bg-white"
+          "rounded-panel border p-3 shadow-soft transition-colors duration-150",
+          hasConflict
+            ? "border-amber-300 bg-amber-50"
+            : cancelled
+              ? "border-gray-200 bg-gray-50"
+              : "border-gray-200 bg-white"
         )}
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className={cx("min-w-0", cancelled && "opacity-60")}>
-            <div className={cx("font-medium text-gray-900", cancelled && "line-through")}>
+            <div className={cx("font-semibold text-gray-900", cancelled && "line-through")}>
               {job.startTime} · {job.clientName}
             </div>
             <div className="text-xs text-gray-500">
               {job.serviceType} · {job.employeeName ?? "Unassigned"} · {job.plannedDurationHours}h
-              {job.status === "cancelled-partial" && job.actualHours != null && (
-                <> · billed {job.actualHours}h</>
-              )}
+              {job.status === "cancelled-partial" && job.actualHours != null && <> · billed {job.actualHours}h</>}
             </div>
+          </div>
+          <Badge tone={statusTone[job.status] ?? "gray"}>{statusLabel[job.status] ?? job.status}</Badge>
+        </div>
+
+        {hasConflict && (
+          <div className="mt-2 space-y-1 rounded-control border border-amber-300 bg-amber-100/60 p-2">
             {jobConflicts.map((m, i) => (
-              <div key={i} className="mt-1 text-xs font-medium text-red-700">
-                ⚠ {m}
+              <div key={i} className="flex items-start gap-1.5 text-xs font-medium text-amber-900">
+                <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{m}</span>
               </div>
             ))}
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Badge tone={statusTone[job.status] ?? "gray"}>{statusLabel[job.status] ?? job.status}</Badge>
+        )}
+
+        {!completed && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <ActionIconButton label="Edit job" tone="primary" onClick={() => setEditJob(job)}>
+              <IconEdit className="h-4 w-4" />
+            </ActionIconButton>
+            {!cancelled && (
+              <>
+                <ActionIconButton label="Mark complete" tone="primary" onClick={() => setCompleteJob(job)}>
+                  <IconCheck className="h-4 w-4" />
+                </ActionIconButton>
+                <ActionIconButton label="Reschedule" tone="default" onClick={() => setRescheduleJob(job)}>
+                  <IconClockArrow className="h-4 w-4" />
+                </ActionIconButton>
+                <ActionIconButton label="Cancel job" tone="danger" onClick={() => setCancelJob(job)}>
+                  <IconX className="h-4 w-4" />
+                </ActionIconButton>
+              </>
+            )}
           </div>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setEditJob(job)}>
-            Edit
-          </Button>
-          {job.status !== "completed" && !cancelled && (
-            <Button size="sm" onClick={() => setCompleteJob(job)}>
-              Mark complete
-            </Button>
-          )}
-          {job.status !== "completed" && !cancelled && (
-            <Button size="sm" variant="secondary" onClick={() => setRescheduleJob(job)}>
-              Reschedule
-            </Button>
-          )}
-          {!cancelled && (
-            <Button size="sm" variant="danger" onClick={() => setCancelJob(job)}>
-              Cancel
-            </Button>
-          )}
-        </div>
+        )}
+        {completed && (
+          <div className="mt-2.5">
+            <ActionIconButton label="Edit job" tone="primary" onClick={() => setEditJob(job)}>
+              <IconEdit className="h-4 w-4" />
+            </ActionIconButton>
+          </div>
+        )}
       </div>
     );
   }
@@ -133,24 +263,51 @@ export default function Roster() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold text-gray-900">Weekly roster</h1>
+        <h1 className="text-2xl font-bold text-brand-navy">Weekly roster</h1>
         <Button onClick={() => setAddOpen(true)}>+ One-off job</Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="secondary" onClick={() => setWeekStart(format(addDays(parseISO(weekStart), -7), "yyyy-MM-dd"))}>
-          ← Prev
-        </Button>
-        <span className="font-medium text-gray-700">
-          {format(parseISO(weekStart), "d MMM")} – {format(parseISO(weekEnd), "d MMM yyyy")}
-        </span>
-        <Button size="sm" variant="secondary" onClick={() => setWeekStart(format(addDays(parseISO(weekStart), 7), "yyyy-MM-dd"))}>
-          Next →
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => generate.mutate({ weekStart })} disabled={generate.isPending}>
-          {generate.isPending ? "Generating…" : "Generate this week from patterns"}
-        </Button>
-      </div>
+      {/* Header bar: week nav + generate action, given prominent brand treatment since this is
+          the primary control surface for the week. */}
+      <Card className="border-brand-secondary/20 bg-gradient-to-br from-brand-primary to-brand-secondary text-white shadow-soft-lg">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-label="Previous week"
+              onClick={() => setWeekStart(format(addDays(parseISO(weekStart), -7), "yyyy-MM-dd"))}
+              className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <IconChevronLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-[10rem] text-center sm:min-w-[12rem]">
+              <div className="text-base font-bold sm:text-lg">
+                {format(parseISO(weekStart), "d MMM")} – {format(parseISO(weekEnd), "d MMM yyyy")}
+              </div>
+              <div className="text-xs text-white/70">
+                {jobs.isLoading ? "Loading…" : `${totalJobsThisWeek} job${totalJobsThisWeek === 1 ? "" : "s"} this week`}
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Next week"
+              onClick={() => setWeekStart(format(addDays(parseISO(weekStart), 7), "yyyy-MM-dd"))}
+              className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <IconChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => generate.mutate({ weekStart })}
+            disabled={generate.isPending}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-control bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition-all duration-150 hover:bg-brand-accent/10 active:scale-[0.97] disabled:opacity-60"
+          >
+            <IconSparkles className="h-4 w-4" />
+            {generate.isPending ? "Generating…" : "Generate this week"}
+          </button>
+        </div>
+      </Card>
 
       <div className="flex gap-2">
         <Button size="sm" variant={view === "day" ? "primary" : "secondary"} onClick={() => setView("day")}>
@@ -162,19 +319,28 @@ export default function Roster() {
       </div>
 
       {jobs.isLoading ? (
-        <Spinner />
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 w-full" />
+          ))}
+        </div>
+      ) : totalJobsThisWeek === 0 ? (
+        <EmptyState>
+          <p className="font-medium text-gray-600">Nothing generated for this week yet.</p>
+          <p className="mt-1 text-sm">Use "Generate this week" to build the roster from recurring patterns, or add a one-off job.</p>
+        </EmptyState>
       ) : view === "day" ? (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {days.map((d) => {
             const dayJobs = (byDay.get(d) ?? []).sort((a, b) => a.startTime.localeCompare(b.startTime));
             const weekday = format(parseISO(d), "EEEE");
             return (
               <div key={d}>
-                <h2 className="mb-1 font-semibold text-gray-800">
+                <h2 className="mb-1.5 font-semibold text-brand-navy">
                   {weekday} <span className="font-normal text-gray-400">{format(parseISO(d), "d MMM")}</span>
                 </h2>
                 {dayJobs.length === 0 ? (
-                  <p className="text-sm text-gray-400">No jobs.</p>
+                  <p className="rounded-control border border-dashed border-gray-200 p-3 text-sm text-gray-400">No jobs.</p>
                 ) : (
                   <div className="space-y-2">
                     {dayJobs.map((j) => (
@@ -187,28 +353,22 @@ export default function Roster() {
           })}
         </div>
       ) : (
-        <div className="space-y-4">
-          {byEmployee.length === 0 ? (
-            <EmptyState>No jobs scheduled this week.</EmptyState>
-          ) : (
-            byEmployee.map(([name, empJobs]) => (
-              <div key={name}>
-                <div className="mb-1 flex items-center justify-between">
-                  <h2 className="font-semibold text-gray-800">{name}</h2>
-                  {name !== "Unassigned" && (
-                    <PrintLink weekStart={weekStart} employeeName={name} employees={employees.data} />
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {empJobs
-                    .sort((a, b) => (a.scheduledDate + a.startTime).localeCompare(b.scheduledDate + b.startTime))
-                    .map((j) => (
-                      <JobRow key={j.id} job={j} />
-                    ))}
-                </div>
+        <div className="space-y-5">
+          {byEmployee.map(([name, empJobs]) => (
+            <div key={name}>
+              <div className="mb-1.5 flex items-center justify-between">
+                <h2 className="font-semibold text-brand-navy">{name}</h2>
+                {name !== "Unassigned" && <PrintLink weekStart={weekStart} employeeName={name} employees={employees.data} />}
               </div>
-            ))
-          )}
+              <div className="space-y-2">
+                {empJobs
+                  .sort((a, b) => (a.scheduledDate + a.startTime).localeCompare(b.scheduledDate + b.startTime))
+                  .map((j) => (
+                    <JobRow key={j.id} job={j} />
+                  ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -225,8 +385,12 @@ function PrintLink({ weekStart, employeeName, employees }: { weekStart: string; 
   const emp = employees?.find((e) => e.name === employeeName);
   if (!emp) return null;
   return (
-    <Link href={`/roster/print/${weekStart}/${emp.id}`} className="text-xs font-medium text-brand-700 hover:underline">
-      Printable view →
+    <Link
+      href={`/roster/print/${weekStart}/${emp.id}`}
+      className="inline-flex items-center gap-1 text-xs font-medium text-brand-primary hover:underline"
+    >
+      <IconPrinter className="h-3.5 w-3.5" />
+      Printable view
     </Link>
   );
 }

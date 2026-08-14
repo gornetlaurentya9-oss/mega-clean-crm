@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { Button, Input, Modal, Select } from "./ui";
+import { useToast } from "./Toast";
 
 /**
  * Moves a job to a new date/time in place (same row/id — never a duplicate). Status resets to
@@ -9,6 +10,7 @@ import { Button, Input, Modal, Select } from "./ui";
  */
 export function RescheduleModal({ open, onClose, job }: { open: boolean; onClose: () => void; job?: any }) {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const employees = trpc.employees.list.useQuery({ status: "active" }, { enabled: open });
   const [scheduledDate, setScheduledDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -28,8 +30,10 @@ export function RescheduleModal({ open, onClose, job }: { open: boolean; onClose
       utils.jobs.conflicts.invalidate();
       utils.dashboard.summary.invalidate();
       utils.dashboard.details.invalidate();
+      toast.success(job?.clientName ? `Job for ${job.clientName} rescheduled` : "Job rescheduled");
       onClose();
     },
+    onError: () => toast.error("Could not reschedule job"),
   });
 
   if (!job) return null;

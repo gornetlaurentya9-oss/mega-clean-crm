@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { Button, Input, Modal, Textarea } from "./ui";
+import { useToast } from "./Toast";
 
 /**
  * Cancelling a job covers two real-world cases:
@@ -12,6 +13,7 @@ import { Button, Input, Modal, Textarea } from "./ui";
  */
 export function CancelJobModal({ open, onClose, job }: { open: boolean; onClose: () => void; job?: any }) {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const [mode, setMode] = useState<"none" | "partial">("none");
   const [actualHours, setActualHours] = useState("");
   const [notes, setNotes] = useState("");
@@ -30,8 +32,10 @@ export function CancelJobModal({ open, onClose, job }: { open: boolean; onClose:
       utils.jobs.conflicts.invalidate();
       utils.dashboard.summary.invalidate();
       utils.dashboard.details.invalidate();
+      toast.success(job?.clientName ? `Job for ${job.clientName} cancelled` : "Job cancelled");
       onClose();
     },
+    onError: () => toast.error("Could not cancel job"),
   });
 
   if (!job) return null;
