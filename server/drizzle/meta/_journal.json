@@ -15,6 +15,13 @@
       "when": 1786698576548,
       "tag": "0001_magical_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786993597625,
+      "tag": "0002_dry_anita_blake",
+      "breakpoints": true
     }
   ]
 }

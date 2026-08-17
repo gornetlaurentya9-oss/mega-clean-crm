@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { addDays, format, parseISO, startOfWeek } from "date-fns";
 import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, EmptyState, Skeleton, cx } from "../components/ui";
-import { MessageAlertIcon } from "../components/Icons";
+import { CheckIcon, MessageAlertIcon } from "../components/Icons";
 import { useToast } from "../components/Toast";
 import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
@@ -148,6 +148,22 @@ export default function Roster() {
   const jobs = trpc.jobs.list.useQuery({ from: weekStart, to: weekEnd });
   const conflicts = trpc.jobs.conflicts.useQuery({ from: weekStart, to: weekEnd });
   const employees = trpc.employees.list.useQuery({ status: "active" });
+  const approval = trpc.weekApprovals.get.useQuery({ weekStart });
+
+  const approveWeek = trpc.weekApprovals.approve.useMutation({
+    onSuccess: () => {
+      utils.weekApprovals.get.invalidate({ weekStart });
+      toast.success("Week approved");
+    },
+    onError: () => toast.error("Could not approve this week"),
+  });
+  const unapproveWeek = trpc.weekApprovals.unapprove.useMutation({
+    onSuccess: () => {
+      utils.weekApprovals.get.invalidate({ weekStart });
+      toast.info("Approval removed");
+    },
+    onError: () => toast.error("Could not unapprove this week"),
+  });
 
   const generate = trpc.jobs.generateWeek.useMutation({
     onSuccess: (res) => {
@@ -201,6 +217,7 @@ export default function Roster() {
   }, [jobs.data]);
 
   const totalJobsThisWeek = jobs.data?.length ?? 0;
+  const changeRequestedCount = (jobs.data ?? []).filter((j) => j.clientResponseStatus === "change-requested").length;
 
   function JobRow({ job }: { job: any }) {
     const jobConflicts = conflictsByJob.get(job.id) ?? [];
@@ -377,6 +394,49 @@ export default function Roster() {
             {generate.isPending ? "Generating…" : "Generate this week"}
           </button>
         </div>
+      </Card>
+
+      {/* Week approval — a marker for the owner's own tracking, entirely separate from any job's
+          status/clientResponseStatus. Approving/unapproving never touches individual jobs. */}
+      <Card className={approval.data ? "border-emerald-200 bg-emerald-50" : undefined}>
+        {approval.data ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
+                <CheckIcon size={16} />
+              </span>
+              <div>
+                <Badge tone="green">Approved</Badge>
+                <div className="mt-0.5 text-xs text-gray-600">
+                  Approved {format(parseISO(approval.data.approvedAt), "EEE d MMM, h:mmaaa")}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => unapproveWeek.mutate({ weekStart })}
+              disabled={unapproveWeek.isPending}
+              className="text-xs font-medium text-gray-500 underline-offset-2 hover:text-red-600 hover:underline disabled:opacity-60"
+            >
+              {unapproveWeek.isPending ? "Removing…" : "Unapprove"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <Button onClick={() => approveWeek.mutate({ weekStart })} disabled={approveWeek.isPending}>
+                <CheckIcon size={16} />
+                {approveWeek.isPending ? "Approving…" : "Approve this week"}
+              </Button>
+              {changeRequestedCount > 0 && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                  <MessageAlertIcon className="h-3.5 w-3.5 shrink-0" />
+                  {changeRequestedCount} job{changeRequestedCount === 1 ? "" : "s"} still flagged for a client response
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </Card>
 
       <div className="flex gap-2">

@@ -186,6 +186,19 @@ export function MessageAlertIcon(props: IconProps) {
   );
 }
 
+/** Used for the daily confirmation screen (Today.tsx) — a checklist/clipboard-check mark, distinct
+ *  from CalendarIcon (the week-level roster) and CheckIcon (a plain inline confirm action). */
+export function ChecklistIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="5" y="3.5" width="14" height="17" rx="2" />
+      <path d="M9 3v2h6V3" />
+      <path d="M8.5 12.5l1.8 1.8L14.5 10" />
+      <path d="M8.5 17h7" />
+    </svg>
+  );
+}
+
 export function ArrowRightIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

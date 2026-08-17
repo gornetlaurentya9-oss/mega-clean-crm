@@ -100,3 +100,15 @@ export const jobs = pgTable("jobs", {
   clientResponseStatus: text("client_response_status").notNull().default("confirmed"),
   ...timestamps,
 });
+
+// One row per approved week, keyed by the Monday (`weekStart`, YYYY-MM-DD) that identifies the
+// week the same way Roster.tsx/generateWeek already do. A purely owner-facing go/no-go marker —
+// approving a week never touches any job's `status`/`clientResponseStatus`, it's independent
+// state for her own tracking. No row = not approved; deleting the row (`weekApprovals.unapprove`)
+// revokes approval, e.g. after a late cancellation. `approvedAt` follows this file's
+// timestamp-as-text convention (see the `timestamps` helper comment above) rather than a native
+// `timestamp` column.
+export const weekApprovals = pgTable("week_approvals", {
+  weekStart: text("week_start").primaryKey(), // YYYY-MM-DD, Monday of the approved week.
+  approvedAt: text("approved_at").notNull(),
+});

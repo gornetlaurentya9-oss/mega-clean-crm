@@ -4,10 +4,11 @@ import { trpc } from "../lib/trpc";
 import { useAuth } from "../hooks/useAuth";
 import { cx } from "./ui";
 import { Logo } from "./Logo";
-import { BellIcon, CalendarIcon, HomeIcon, ImportIcon, MessageIcon, ReceiptIcon, StaffIcon, UsersIcon } from "./Icons";
+import { BellIcon, CalendarIcon, ChecklistIcon, HomeIcon, ImportIcon, MessageIcon, ReceiptIcon, StaffIcon, UsersIcon } from "./Icons";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", Icon: HomeIcon },
+  { href: "/today", label: "Today", Icon: ChecklistIcon },
   { href: "/roster", label: "Roster", Icon: CalendarIcon },
   { href: "/clients", label: "Clients", Icon: UsersIcon },
   { href: "/employees", label: "Staff", Icon: StaffIcon },

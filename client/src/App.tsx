@@ -12,6 +12,7 @@ import ClientDetail from "./pages/ClientDetail";
 import Invoicing from "./pages/Invoicing";
 import Roster from "./pages/Roster";
 import PrintWeek from "./pages/PrintWeek";
+import Today from "./pages/Today";
 import Tomorrow from "./pages/Tomorrow";
 import HeadsUp from "./pages/HeadsUp";
 import Import from "./pages/Import";
@@ -40,6 +41,7 @@ function Gate() {
         <Route path="/invoicing" component={Invoicing} />
         <Route path="/roster" component={Roster} />
         <Route path="/roster/print/:weekStart/:employeeId" component={PrintWeek} />
+        <Route path="/today" component={Today} />
         <Route path="/tomorrow" component={Tomorrow} />
         <Route path="/heads-up" component={HeadsUp} />
         <Route path="/import" component={Import} />
