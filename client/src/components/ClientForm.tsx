@@ -124,7 +124,7 @@ export function ClientForm({
 
       <FormSection title="Billing &amp; access notes">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <Input label="Billing rate ($)" type="number" step="0.01" tabIndex={10} {...register("billingRate", { valueAsNumber: true })} />
+          <Input label="Billing rate (€)" type="number" step="0.01" tabIndex={10} {...register("billingRate", { valueAsNumber: true })} />
           <Select label="Rate type" tabIndex={11} {...register("billingRateType")}>
             {BILLING_RATE_TYPES.map((t) => (
               <option key={t} value={t}>

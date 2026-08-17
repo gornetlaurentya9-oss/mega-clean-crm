@@ -3,10 +3,10 @@ import { cx } from "./ui";
 /**
  * Mega Clean brand mark, recreated as code (no raster assets).
  *
- * Renders a small cluster of 2-3 four-pointed "sparkle" shapes in the
- * accent blue, sitting above a bold uppercase wordmark ("MEGA CLEAN") in
- * the primary brand blue, with a thin lowercase "professional team"
- * subline underneath.
+ * Renders a small asymmetric cluster of four-pointed "sparkle" shapes in
+ * the accent blue, sitting above a bold uppercase wordmark ("MEGA CLEAN")
+ * in the same accent blue, with a thin lowercase "professional team"
+ * subline underneath in dark gray.
  *
  * Usage:
  *   <Logo size="sm" />                 // header/nav
@@ -28,68 +28,48 @@ interface LogoProps {
 }
 
 /**
- * A single four-pointed "twinkle" sparkle: four points along the axes
- * connected by edges that curve inward (concave) toward the center,
- * giving the classic soft sparkle/asterisk silhouette (not a 5-point star).
+ * A single four-pointed "twinkle" sparkle: four sharp points along the axes
+ * connected by edges that curve inward (concave) toward the center. The
+ * concavity ratio (~15% of the radius) is deliberately tight so the arms
+ * read as thin and sharp rather than a rounded diamond — matching the real
+ * Mega Clean mark rather than a generic emoji-style sparkle.
  */
-function Sparkle({
-  size,
-  className,
-  style,
-}: {
-  size: number;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  // Points at top/right/bottom/left (12 o'clock, 3, 6, 9), with quadratic
-  // bezier edges that bow in toward the center (control point pulled to
-  // roughly 22% of the radius) to create the concave "twinkle" curve.
-  const c = 12; // viewBox center
-  const r = 11; // outer point radius
-  const k = 2.6; // control-point pull toward center (concavity)
-
-  const top = `${c},${c - r}`;
-  const right = `${c + r},${c}`;
-  const bottom = `${c},${c + r}`;
-  const left = `${c - r},${c}`;
-
-  const d = [
+function sparklePath(cx: number, cy: number, r: number, kRatio = 0.15) {
+  const k = r * kRatio;
+  const top = `${cx},${cy - r}`;
+  const right = `${cx + r},${cy}`;
+  const bottom = `${cx},${cy + r}`;
+  const left = `${cx - r},${cy}`;
+  return [
     `M ${top}`,
-    `Q ${c + k},${c - k} ${right}`,
-    `Q ${c + k},${c + k} ${bottom}`,
-    `Q ${c - k},${c + k} ${left}`,
-    `Q ${c - k},${c - k} ${top}`,
+    `Q ${cx + k},${cy - k} ${right}`,
+    `Q ${cx + k},${cy + k} ${bottom}`,
+    `Q ${cx - k},${cy + k} ${left}`,
+    `Q ${cx - k},${cy - k} ${top}`,
     "Z",
   ].join(" ");
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      className={className}
-      style={style}
-      aria-hidden="true"
-    >
-      <path d={d} />
-    </svg>
-  );
 }
 
 function SparkleMark({ size, className }: { size: number; className?: string }) {
-  // Loosely clustered/overlapping sparkles of varying sizes.
-  const box = size * 1.5;
+  // A loose, asymmetric cluster: one large sparkle, a medium sparkle
+  // overlapping to its upper right, and two tiny accent flecks — matching
+  // the real Mega Clean mark's layout rather than a single symmetric icon.
+  const w = size * 1.35;
+  const h = size * 1.1;
   return (
-    <div
-      className={cx("relative text-brand-accent", className)}
-      style={{ width: box, height: size * 1.1 }}
+    <svg
+      width={w}
+      height={h}
+      viewBox="0 0 135 110"
+      fill="currentColor"
+      className={cx("text-brand-accent", className)}
       aria-hidden="true"
     >
-      <Sparkle size={size * 0.62} style={{ position: "absolute", left: 0, top: size * 0.28 }} />
-      <Sparkle size={size} style={{ position: "absolute", left: size * 0.34, top: 0 }} />
-      <Sparkle size={size * 0.42} style={{ position: "absolute", left: size * 1.06, top: size * 0.38 }} />
-    </div>
+      <path d={sparklePath(58, 62, 30, 0.15)} />
+      <path d={sparklePath(102, 36, 19, 0.15)} />
+      <path d={sparklePath(30, 22, 7, 0.17)} />
+      <path d={sparklePath(120, 18, 4.5, 0.18)} />
+    </svg>
   );
 }
 
@@ -108,8 +88,8 @@ const SIZES: Record<
 
 export function Logo({ size = "md", className, markOnly = false, variant = "dark" }: LogoProps) {
   const s = SIZES[size];
-  const wordColor = variant === "light" ? "text-white" : "text-brand-primary";
-  const subColor = variant === "light" ? "text-white/70" : "text-gray-400";
+  const wordColor = variant === "light" ? "text-white" : "text-brand-accent";
+  const subColor = variant === "light" ? "text-white/70" : "text-gray-600";
 
   const wordmark = !markOnly && (
     <div className={cx("flex flex-col leading-none", s.stacked && "items-center")}>

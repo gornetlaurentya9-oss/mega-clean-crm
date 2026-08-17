@@ -303,12 +303,11 @@ export const jobsRouter = router({
       return rows;
     }),
 
-  // Completed (and partially-completed-then-cancelled) jobs for a given month (YYYY-MM),
-  // including paused/inactive clients' history. Jobs cancelled with no hours worked are
-  // excluded — nothing was done, nothing is owed.
-  monthlyExport: protectedProcedure.input(z.object({ month: z.string() })).query(async ({ input }) => {
-    const from = `${input.month}-01`;
-    const to = `${input.month}-31`;
+  // Completed (and partially-completed-then-cancelled) jobs within a given date range
+  // (inclusive, YYYY-MM-DD), including paused/inactive clients' history. Jobs cancelled
+  // with no hours worked are excluded — nothing was done, nothing is owed.
+  monthlyExport: protectedProcedure.input(z.object({ from: z.string(), to: z.string() })).query(async ({ input }) => {
+    const { from, to } = input;
     const rawRows = await withJoins().where(
       and(
         gte(jobs.scheduledDate, from),

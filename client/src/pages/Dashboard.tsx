@@ -5,6 +5,7 @@ import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, EmptyState, Skeleton, SkeletonList } from "../components/ui";
 import { CompleteJobModal } from "../components/CompleteJobModal";
 import { ArrowRightIcon, SparkleIcon } from "../components/Icons";
+import { formatCurrency } from "../lib/currency";
 
 function IconCalendar() {
   return (
@@ -15,10 +16,11 @@ function IconCalendar() {
   );
 }
 
-function IconDollar() {
+function IconEuro() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2v20M17 6.5c0-1.7-2.2-3-5-3s-5 1.3-5 3 2.2 3 5 3 5 1.3 5 3-2.2 3-5 3-5-1.3-5-3" />
+      <path d="M18 6.5A7 7 0 1 0 18 17.5" />
+      <path d="M4 10h11M4 14h11" />
     </svg>
   );
 }
@@ -150,7 +152,7 @@ export default function Dashboard() {
       <h1 className="text-2xl font-bold text-brand-navy">Overview</h1>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Jobs this week" value={String(weekJobCount)} href="/roster" icon={<IconCalendar />} />
-        <StatCard label="Revenue MTD" value={`$${monthRevenueToDate.toFixed(2)}`} href="/invoicing" icon={<IconDollar />} />
+        <StatCard label="Revenue MTD" value={formatCurrency(monthRevenueToDate)} href="/invoicing" icon={<IconEuro />} />
         <StatCard
           label="Roster conflicts"
           value={String(conflictCount)}

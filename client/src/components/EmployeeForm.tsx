@@ -55,7 +55,7 @@ export function EmployeeForm({
         </fieldset>
 
         <div className="grid grid-cols-2 gap-4">
-          <Input label="Hourly pay rate ($)" type="number" step="0.01" {...register("hourlyPayRate", { valueAsNumber: true })} />
+          <Input label="Hourly pay rate (€)" type="number" step="0.01" {...register("hourlyPayRate", { valueAsNumber: true })} />
           <Select label="Status" {...register("status")}>
             {EMPLOYEE_STATUSES.map((s) => (
               <option key={s} value={s}>

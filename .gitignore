@@ -12,3 +12,4 @@ server/data/
 .DS_Store
 *.log
 *.tsbuildinfo
+scratch/
