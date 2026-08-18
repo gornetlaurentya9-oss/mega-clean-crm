@@ -128,6 +128,27 @@ export const jobsRouter = router({
       return row;
     }),
 
+  // Permanently removes a job row from the roster — distinct from cancel, which keeps a
+  // ("cancelled"/"cancelled-partial") record. For a job that was scheduled by mistake and
+  // should just disappear (a generation error, a duplicate one-off, etc.), not a real
+  // cancellation worth keeping a trace of. Blocked once a job carries billable history
+  // (completed / cancelled-partial) — deleting those would silently remove real invoicing
+  // data with no record; use Cancel instead to reverse a mistaken "completed" while keeping
+  // a trace. If this job came from an active recurring pattern, the next "Generate this week"
+  // will simply recreate it, same as if it had never been generated.
+  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const [row] = await db.select().from(jobs).where(eq(jobs.id, input.id));
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found" });
+    if ((BILLABLE_STATUSES as readonly string[]).includes(row.status)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "This job has billable history and can't be deleted — use Cancel instead to keep a record.",
+      });
+    }
+    await db.delete(jobs).where(eq(jobs.id, input.id));
+    return { success: true };
+  }),
+
   // Move a job to a new date/time (and optionally reassign the employee) IN PLACE — same row,
   // same id, so nothing is orphaned or duplicated. Resets status to "scheduled" since it needs
   // reconfirming at the new slot. Not allowed once a job is cancelled/completed — reverse or

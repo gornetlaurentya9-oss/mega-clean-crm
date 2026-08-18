@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "wouter";
 import { addDays, format, parseISO } from "date-fns";
 import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, EmptyState, SkeletonList, cx } from "../components/ui";
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, SparkleIcon } from "../components/Icons";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, SparkleIcon, TrashIcon } from "../components/Icons";
 import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
 import { CancelJobModal } from "../components/CancelJobModal";
+import { useToast } from "../components/Toast";
 
 const statusTone: Record<string, "gray" | "green" | "yellow" | "red" | "blue"> = {
   scheduled: "blue",
@@ -21,6 +23,7 @@ const statusLabel: Record<string, string> = {
 };
 
 const RESOLVED_STATUSES = ["completed", "cancelled", "cancelled-partial"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function todayStr() {
   return format(new Date(), "yyyy-MM-dd");
@@ -29,17 +32,45 @@ function todayStr() {
 /**
  * The night-before/next-morning "clear today's outstanding jobs" screen — a filtered, focused
  * view over the same jobs data the roster already shows (not a separate system). Defaults to
- * today, with prev/next day nav for catching up on a day or two missed. Reuses the existing
- * CompleteJobModal/CancelJobModal (and jobs.complete/jobs.cancel mutations) rather than
- * duplicating that logic — same as Roster.tsx.
+ * today, with prev/next day nav for catching up on a day or two missed, or deep-links to a
+ * specific day via an optional :date route param (e.g. from the roster's month calendar).
+ * Reuses the existing CompleteJobModal/CancelJobModal (and jobs.complete/jobs.cancel
+ * mutations) rather than duplicating that logic — same as Roster.tsx.
  */
 export default function Today() {
-  const [date, setDate] = useState(todayStr);
+  const params = useParams<{ date?: string }>();
+  const [date, setDate] = useState(() => (params.date && DATE_RE.test(params.date) ? params.date : todayStr()));
   const [completeJob, setCompleteJob] = useState<any>(null);
   const [cancelJob, setCancelJob] = useState<any>(null);
   const [editJob, setEditJob] = useState<any>(null);
+  const toast = useToast();
+  const utils = trpc.useUtils();
+
+  // wouter re-renders the same component instance across /today/:date navigations rather than
+  // remounting it, so the lazily-initialized state above won't pick up a later param change on
+  // its own — sync explicitly when the URL param changes (e.g. clicking a different day in the
+  // roster's month calendar while already on this page).
+  useEffect(() => {
+    if (params.date && DATE_RE.test(params.date) && params.date !== date) {
+      setDate(params.date);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.date]);
 
   const jobsQuery = trpc.jobs.list.useQuery({ from: date, to: date });
+  const removeJob = trpc.jobs.remove.useMutation({
+    onSuccess: () => {
+      utils.jobs.list.invalidate();
+      toast.success("Job removed");
+    },
+    onError: (err) => toast.error(err.message || "Could not remove this job"),
+  });
+
+  function handleDelete(job: any) {
+    if (window.confirm(`Remove this ${job.serviceType} job for ${job.clientName} from the roster? This can't be undone.`)) {
+      removeJob.mutate({ id: job.id });
+    }
+  }
 
   const jobs = useMemo(
     () => (jobsQuery.data ?? []).slice().sort((a, b) => a.startTime.localeCompare(b.startTime)),
@@ -158,6 +189,10 @@ export default function Today() {
                       </Button>
                       <Button size="sm" variant="danger" onClick={() => setCancelJob(job)}>
                         Cancel
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => handleDelete(job)} title="Remove entirely — not a cancellation">
+                        <TrashIcon size={15} />
+                        Remove
                       </Button>
                     </>
                   )}

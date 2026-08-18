@@ -1,6 +1,19 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { addDays, format, parseISO, startOfWeek } from "date-fns";
+import {
+  addDays,
+  addMonths,
+  endOfMonth,
+  endOfWeek,
+  eachDayOfInterval,
+  format,
+  isSameMonth,
+  isToday as isTodayFn,
+  parseISO,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns";
 import { trpc } from "../lib/trpc";
 import { Badge, Button, Card, EmptyState, Skeleton, cx } from "../components/ui";
 import { CheckIcon, MessageAlertIcon } from "../components/Icons";
@@ -97,6 +110,14 @@ function IconX({ className }: { className?: string }) {
   );
 }
 
+function IconTrash({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16M9 7V4.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V7M6 7l1 12.5a2 2 0 0 0 2 1.5h6a2 2 0 0 0 2-1.5L18 7" />
+    </svg>
+  );
+}
+
 /** Small square icon-button used for the per-job action row — keeps a 44px tap target on mobile
  *  without needing a full label on every button. */
 function ActionIconButton({
@@ -135,7 +156,8 @@ function ActionIconButton({
 
 export default function Roster() {
   const [weekStart, setWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"));
-  const [view, setView] = useState<"day" | "employee" | "calendar">("day");
+  const [view, setView] = useState<"month" | "day" | "employee" | "calendar">("month");
+  const [monthCursor, setMonthCursor] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [editJob, setEditJob] = useState<any>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [completeJob, setCompleteJob] = useState<any>(null);
@@ -145,10 +167,46 @@ export default function Roster() {
   const toast = useToast();
   const weekEnd = format(addDays(parseISO(weekStart), 6), "yyyy-MM-dd");
   const utils = trpc.useUtils();
-  const jobs = trpc.jobs.list.useQuery({ from: weekStart, to: weekEnd });
-  const conflicts = trpc.jobs.conflicts.useQuery({ from: weekStart, to: weekEnd });
+  const jobs = trpc.jobs.list.useQuery({ from: weekStart, to: weekEnd }, { enabled: view !== "month" });
+  const conflicts = trpc.jobs.conflicts.useQuery({ from: weekStart, to: weekEnd }, { enabled: view !== "month" });
   const employees = trpc.employees.list.useQuery({ status: "active" });
-  const approval = trpc.weekApprovals.get.useQuery({ weekStart });
+  const approval = trpc.weekApprovals.get.useQuery({ weekStart }, { enabled: view !== "month" });
+
+  // Month view's own date range: the full calendar grid (padded to whole weeks, Mon-Sun) so
+  // leading/trailing days from adjacent months shown in the grid still get accurate job counts.
+  const monthGridStart = format(startOfWeek(startOfMonth(parseISO(monthCursor)), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const monthGridEnd = format(endOfWeek(endOfMonth(parseISO(monthCursor)), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const monthJobs = trpc.jobs.list.useQuery(
+    { from: monthGridStart, to: monthGridEnd },
+    { enabled: view === "month" }
+  );
+  const monthConflicts = trpc.jobs.conflicts.useQuery(
+    { from: monthGridStart, to: monthGridEnd },
+    { enabled: view === "month" }
+  );
+
+  const monthJobsByDay = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const j of monthJobs.data ?? []) {
+      map.set(j.scheduledDate, [...(map.get(j.scheduledDate) ?? []), j]);
+    }
+    return map;
+  }, [monthJobs.data]);
+
+  const monthConflictDates = useMemo(() => {
+    const dates = new Set<string>();
+    const jobById = new Map((monthJobs.data ?? []).map((j: any) => [j.id, j]));
+    for (const c of monthConflicts.data ?? []) {
+      const job = jobById.get(c.jobId);
+      if (job) dates.add(job.scheduledDate);
+    }
+    return dates;
+  }, [monthConflicts.data, monthJobs.data]);
+
+  const monthGridDays = useMemo(
+    () => eachDayOfInterval({ start: parseISO(monthGridStart), end: parseISO(monthGridEnd) }),
+    [monthGridStart, monthGridEnd]
+  );
 
   const approveWeek = trpc.weekApprovals.approve.useMutation({
     onSuccess: () => {
@@ -173,6 +231,23 @@ export default function Roster() {
     },
     onError: () => toast.error("Could not generate this week"),
   });
+
+  // Permanently removes a mistaken roster entry — distinct from Cancel, which keeps a record.
+  // Server blocks this once a job has billable history (completed / cancelled-partial).
+  const removeJob = trpc.jobs.remove.useMutation({
+    onSuccess: () => {
+      utils.jobs.list.invalidate();
+      utils.jobs.conflicts.invalidate();
+      toast.success("Job removed from the roster");
+    },
+    onError: (err) => toast.error(err.message || "Could not remove this job"),
+  });
+
+  function handleDeleteJob(job: any) {
+    if (window.confirm(`Remove this ${job.serviceType} job for ${job.clientName} from the roster? This can't be undone.`)) {
+      removeJob.mutate({ id: job.id });
+    }
+  }
 
   // Independent of job status/conflicts — the owner flags/clears this herself after hearing back
   // from a client (phone/text) about a "heads-up" message. Doesn't gate or block anything else.
@@ -225,6 +300,7 @@ export default function Roster() {
     const changeRequested = job.clientResponseStatus === "change-requested";
     const cancelled = job.status === "cancelled" || job.status === "cancelled-partial";
     const completed = job.status === "completed";
+    const deletable = job.status !== "completed" && job.status !== "cancelled-partial";
 
     const responseToggle = (
       <ActionIconButton
@@ -286,6 +362,11 @@ export default function Roster() {
               <IconEdit className="h-4 w-4" />
             </ActionIconButton>
             {responseToggle}
+            {deletable && (
+              <ActionIconButton label="Remove from roster" tone="danger" onClick={() => handleDeleteJob(job)}>
+                <IconTrash className="h-4 w-4" />
+              </ActionIconButton>
+            )}
             {!cancelled && (
               <>
                 <ActionIconButton label="Mark complete" tone="primary" onClick={() => setCompleteJob(job)}>
@@ -354,92 +435,137 @@ export default function Roster() {
         <Button onClick={() => setAddOpen(true)}>+ One-off job</Button>
       </div>
 
-      {/* Header bar: week nav + generate action, given prominent brand treatment since this is
-          the primary control surface for the week. */}
-      <Card className="border-brand-secondary/20 bg-gradient-to-br from-brand-primary to-brand-secondary text-white shadow-soft-lg">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              aria-label="Previous week"
-              onClick={() => setWeekStart(format(addDays(parseISO(weekStart), -7), "yyyy-MM-dd"))}
-              className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-            >
-              <IconChevronLeft className="h-5 w-5" />
-            </button>
-            <div className="min-w-[10rem] text-center sm:min-w-[12rem]">
-              <div className="text-base font-bold sm:text-lg">
-                {format(parseISO(weekStart), "d MMM")} – {format(parseISO(weekEnd), "d MMM yyyy")}
-              </div>
-              <div className="text-xs text-white/70">
-                {jobs.isLoading ? "Loading…" : `${totalJobsThisWeek} job${totalJobsThisWeek === 1 ? "" : "s"} this week`}
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-label="Next week"
-              onClick={() => setWeekStart(format(addDays(parseISO(weekStart), 7), "yyyy-MM-dd"))}
-              className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-            >
-              <IconChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => generate.mutate({ weekStart })}
-            disabled={generate.isPending}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-control bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition-all duration-150 hover:bg-brand-accent/10 active:scale-[0.97] disabled:opacity-60"
-          >
-            <IconSparkles className="h-4 w-4" />
-            {generate.isPending ? "Generating…" : "Generate this week"}
-          </button>
-        </div>
-      </Card>
-
-      {/* Week approval — a marker for the owner's own tracking, entirely separate from any job's
-          status/clientResponseStatus. Approving/unapproving never touches individual jobs. */}
-      <Card className={approval.data ? "border-emerald-200 bg-emerald-50" : undefined}>
-        {approval.data ? (
+      {view === "month" ? (
+        /* Month nav — independent of the week-scoped controls below, since "generate"/"approve"
+           are single-week concepts that don't map cleanly onto a whole month at a glance. */
+        <Card className="border-brand-secondary/20 bg-gradient-to-br from-brand-primary to-brand-secondary text-white shadow-soft-lg">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
-                <CheckIcon size={16} />
-              </span>
-              <div>
-                <Badge tone="green">Approved</Badge>
-                <div className="mt-0.5 text-xs text-gray-600">
-                  Approved {format(parseISO(approval.data.approvedAt), "EEE d MMM, h:mmaaa")}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-label="Previous month"
+                onClick={() => setMonthCursor(format(subMonths(parseISO(monthCursor), 1), "yyyy-MM-dd"))}
+                className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                <IconChevronLeft className="h-5 w-5" />
+              </button>
+              <div className="min-w-[10rem] text-center sm:min-w-[12rem]">
+                <div className="text-base font-bold sm:text-lg">{format(parseISO(monthCursor), "MMMM yyyy")}</div>
+                <div className="text-xs text-white/70">
+                  {monthJobs.isLoading ? "Loading…" : `${monthJobs.data?.length ?? 0} job${(monthJobs.data?.length ?? 0) === 1 ? "" : "s"} this month`}
                 </div>
               </div>
+              <button
+                type="button"
+                aria-label="Next month"
+                onClick={() => setMonthCursor(format(addMonths(parseISO(monthCursor), 1), "yyyy-MM-dd"))}
+                className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                <IconChevronRight className="h-5 w-5" />
+              </button>
             </div>
             <button
               type="button"
-              onClick={() => unapproveWeek.mutate({ weekStart })}
-              disabled={unapproveWeek.isPending}
-              className="text-xs font-medium text-gray-500 underline-offset-2 hover:text-red-600 hover:underline disabled:opacity-60"
+              onClick={() => setMonthCursor(format(new Date(), "yyyy-MM-dd"))}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-control bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition-all duration-150 hover:bg-brand-accent/10 active:scale-[0.97]"
             >
-              {unapproveWeek.isPending ? "Removing…" : "Unapprove"}
+              Jump to today
             </button>
           </div>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <Button onClick={() => approveWeek.mutate({ weekStart })} disabled={approveWeek.isPending}>
-                <CheckIcon size={16} />
-                {approveWeek.isPending ? "Approving…" : "Approve this week"}
-              </Button>
-              {changeRequestedCount > 0 && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
-                  <MessageAlertIcon className="h-3.5 w-3.5 shrink-0" />
-                  {changeRequestedCount} job{changeRequestedCount === 1 ? "" : "s"} still flagged for a client response
-                </p>
-              )}
+        </Card>
+      ) : (
+        <>
+          {/* Header bar: week nav + generate action, given prominent brand treatment since this is
+              the primary control surface for the week. */}
+          <Card className="border-brand-secondary/20 bg-gradient-to-br from-brand-primary to-brand-secondary text-white shadow-soft-lg">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  aria-label="Previous week"
+                  onClick={() => setWeekStart(format(addDays(parseISO(weekStart), -7), "yyyy-MM-dd"))}
+                  className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                >
+                  <IconChevronLeft className="h-5 w-5" />
+                </button>
+                <div className="min-w-[10rem] text-center sm:min-w-[12rem]">
+                  <div className="text-base font-bold sm:text-lg">
+                    {format(parseISO(weekStart), "d MMM")} – {format(parseISO(weekEnd), "d MMM yyyy")}
+                  </div>
+                  <div className="text-xs text-white/70">
+                    {jobs.isLoading ? "Loading…" : `${totalJobsThisWeek} job${totalJobsThisWeek === 1 ? "" : "s"} this week`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Next week"
+                  onClick={() => setWeekStart(format(addDays(parseISO(weekStart), 7), "yyyy-MM-dd"))}
+                  className="flex h-10 w-10 items-center justify-center rounded-control bg-white/10 transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                >
+                  <IconChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => generate.mutate({ weekStart })}
+                disabled={generate.isPending}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-control bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition-all duration-150 hover:bg-brand-accent/10 active:scale-[0.97] disabled:opacity-60"
+              >
+                <IconSparkles className="h-4 w-4" />
+                {generate.isPending ? "Generating…" : "Generate this week"}
+              </button>
             </div>
-          </div>
-        )}
-      </Card>
+          </Card>
 
-      <div className="flex gap-2">
+          {/* Week approval — a marker for the owner's own tracking, entirely separate from any job's
+              status/clientResponseStatus. Approving/unapproving never touches individual jobs. */}
+          <Card className={approval.data ? "border-emerald-200 bg-emerald-50" : undefined}>
+            {approval.data ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
+                    <CheckIcon size={16} />
+                  </span>
+                  <div>
+                    <Badge tone="green">Approved</Badge>
+                    <div className="mt-0.5 text-xs text-gray-600">
+                      Approved {format(parseISO(approval.data.approvedAt), "EEE d MMM, h:mmaaa")}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => unapproveWeek.mutate({ weekStart })}
+                  disabled={unapproveWeek.isPending}
+                  className="text-xs font-medium text-gray-500 underline-offset-2 hover:text-red-600 hover:underline disabled:opacity-60"
+                >
+                  {unapproveWeek.isPending ? "Removing…" : "Unapprove"}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <Button onClick={() => approveWeek.mutate({ weekStart })} disabled={approveWeek.isPending}>
+                    <CheckIcon size={16} />
+                    {approveWeek.isPending ? "Approving…" : "Approve this week"}
+                  </Button>
+                  {changeRequestedCount > 0 && (
+                    <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                      <MessageAlertIcon className="h-3.5 w-3.5 shrink-0" />
+                      {changeRequestedCount} job{changeRequestedCount === 1 ? "" : "s"} still flagged for a client response
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant={view === "month" ? "primary" : "secondary"} onClick={() => setView("month")}>
+          Month
+        </Button>
         <Button size="sm" variant={view === "day" ? "primary" : "secondary"} onClick={() => setView("day")}>
           By day
         </Button>
@@ -447,11 +573,19 @@ export default function Roster() {
           By employee
         </Button>
         <Button size="sm" variant={view === "calendar" ? "primary" : "secondary"} onClick={() => setView("calendar")}>
-          Calendar
+          Week grid
         </Button>
       </div>
 
-      {jobs.isLoading ? (
+      {view === "month" ? (
+        <MonthGrid
+          days={monthGridDays}
+          monthCursor={monthCursor}
+          jobsByDay={monthJobsByDay}
+          conflictDates={monthConflictDates}
+          loading={monthJobs.isLoading}
+        />
+      ) : jobs.isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-full" />
@@ -548,5 +682,99 @@ function PrintLink({ weekStart, employeeName, employees }: { weekStart: string; 
       <IconPrinter className="h-3.5 w-3.5" />
       Printable view
     </Link>
+  );
+}
+
+/**
+ * A traditional month-at-a-glance calendar grid — the "clean, easy to understand" overview of
+ * the roster the by-day/by-employee/week-grid views don't give at a glance. Each date cell is a
+ * link into the Today page (/today/:date) for a close-up, edit-capable view of that single day,
+ * rather than duplicating job-editing UI inside the grid cells themselves.
+ */
+function MonthGrid({
+  days,
+  monthCursor,
+  jobsByDay,
+  conflictDates,
+  loading,
+}: {
+  days: Date[];
+  monthCursor: string;
+  jobsByDay: Map<string, any[]>;
+  conflictDates: Set<string>;
+  loading: boolean;
+}) {
+  const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const monthDate = parseISO(monthCursor);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+        {Array.from({ length: 35 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full sm:h-24" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-1.5 grid grid-cols-7 gap-1.5 text-center text-xs font-semibold text-gray-400 sm:gap-2">
+        {weekdayLabels.map((d) => (
+          <div key={d}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+        {days.map((d) => {
+          const dateStr = format(d, "yyyy-MM-dd");
+          const inMonth = isSameMonth(d, monthDate);
+          const today = isTodayFn(d);
+          const dayJobs = jobsByDay.get(dateStr) ?? [];
+          const hasConflict = conflictDates.has(dateStr);
+          const hasChangeRequested = dayJobs.some((j) => j.clientResponseStatus === "change-requested");
+          const unresolvedCount = dayJobs.filter((j) => j.status === "scheduled" || j.status === "confirmed").length;
+
+          return (
+            <Link
+              key={dateStr}
+              href={`/today/${dateStr}`}
+              className={cx(
+                "flex min-h-[64px] flex-col items-start gap-1 rounded-control border p-1.5 text-left transition-all duration-150 hover:shadow-soft-lg active:scale-[0.97] sm:min-h-[96px] sm:p-2",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent",
+                !inMonth
+                  ? "border-gray-100 bg-gray-50/60 opacity-50"
+                  : today
+                    ? "border-brand-primary bg-brand-accent/10 shadow-soft"
+                    : hasConflict || hasChangeRequested
+                      ? "border-amber-300 bg-amber-50"
+                      : "border-gray-200 bg-white shadow-soft"
+              )}
+            >
+              <div className="flex w-full items-center justify-between">
+                <span className={cx("text-xs font-semibold sm:text-sm", today ? "text-brand-primary" : "text-gray-700")}>
+                  {format(d, "d")}
+                </span>
+                {(hasConflict || hasChangeRequested) && (
+                  <span className="flex items-center gap-0.5">
+                    {hasConflict && <IconAlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />}
+                    {hasChangeRequested && <MessageAlertIcon className="h-3 w-3 shrink-0 text-amber-600" />}
+                  </span>
+                )}
+              </div>
+              {dayJobs.length > 0 && (
+                <span
+                  className={cx(
+                    "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold sm:text-xs",
+                    unresolvedCount > 0 ? "bg-brand-primary/10 text-brand-primary" : "bg-gray-100 text-gray-500"
+                  )}
+                >
+                  {dayJobs.length} job{dayJobs.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }

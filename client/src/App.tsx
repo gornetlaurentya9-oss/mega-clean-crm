@@ -41,7 +41,7 @@ function Gate() {
         <Route path="/invoicing" component={Invoicing} />
         <Route path="/roster" component={Roster} />
         <Route path="/roster/print/:weekStart/:employeeId" component={PrintWeek} />
-        <Route path="/today" component={Today} />
+        <Route path="/today/:date?" component={Today} />
         <Route path="/tomorrow" component={Tomorrow} />
         <Route path="/heads-up" component={HeadsUp} />
         <Route path="/import" component={Import} />

@@ -207,3 +207,11 @@ export function ArrowRightIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 7h16M9 7V4.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V7M6 7l1 12.5a2 2 0 0 0 2 1.5h6a2 2 0 0 0 2-1.5L18 7" />
+    </svg>
+  );
+}
