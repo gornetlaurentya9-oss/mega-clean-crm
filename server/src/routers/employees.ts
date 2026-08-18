@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { desc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
 import { employees, employeeTimeOff, jobs, recurringPatterns, clients } from "../db/schema.js";
@@ -35,7 +35,7 @@ export const employeesRouter = router({
   list: protectedProcedure
     .input(z.object({ status: z.enum(EMPLOYEE_STATUSES).optional() }).optional())
     .query(async ({ input }) => {
-      const rows = await db.select().from(employees).orderBy(desc(employees.createdAt));
+      const rows = await db.select().from(employees).orderBy(asc(sql`lower(${employees.name})`));
       let result = rows.map(serialize);
       if (input?.status) result = result.filter((e) => e.status === input.status);
       return result;
@@ -110,18 +110,24 @@ export const employeesRouter = router({
     return { success: true };
   }),
 
-  // Permanently removes an employee — distinct from setStatus("inactive"). Blocked whenever the
-  // employee has any jobs on record: jobs.employeeId has no cascading FK, so deleting an
-  // employee referenced by past jobs would leave those historical rows pointing at nothing
-  // (silently losing "who did this job" from old invoices/roster records). Only safe for an
-  // employee who was never actually assigned to a job.
-  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-    const [jobRef] = await db.select().from(jobs).where(eq(jobs.employeeId, input.id)).limit(1);
-    if (jobRef) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "This employee has job history on record and can't be deleted — mark them inactive instead to keep that history.",
-      });
+  // Permanently removes an employee — distinct from setStatus("inactive"). By default blocked
+  // whenever the employee has any jobs on record: jobs.employeeId has no cascading FK, so
+  // deleting an employee referenced by past jobs would leave those historical rows pointing at
+  // nothing (silently losing "who did this job" from old invoices/roster records). Pass
+  // force:true to delete anyway (e.g. cleaning up a test entry) — any jobs referencing this
+  // employee are unassigned (employeeId set to null) rather than deleted, so job/invoice
+  // history itself is preserved even when force-removing the employee who did the work.
+  remove: protectedProcedure.input(z.object({ id: z.number(), force: z.boolean().optional() })).mutation(async ({ input }) => {
+    if (!input.force) {
+      const [jobRef] = await db.select().from(jobs).where(eq(jobs.employeeId, input.id)).limit(1);
+      if (jobRef) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This employee has job history on record and can't be deleted — mark them inactive instead to keep that history.",
+        });
+      }
+    } else {
+      await db.update(jobs).set({ employeeId: null }).where(eq(jobs.employeeId, input.id));
     }
     await db.delete(employeeTimeOff).where(eq(employeeTimeOff.employeeId, input.id));
     await db.update(recurringPatterns).set({ defaultEmployeeId: null }).where(eq(recurringPatterns.defaultEmployeeId, input.id));

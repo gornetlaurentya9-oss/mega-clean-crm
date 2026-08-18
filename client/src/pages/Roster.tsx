@@ -580,6 +580,12 @@ export default function Roster() {
         </Button>
       </div>
 
+      {view !== "month" && !jobs.isLoading && totalJobsThisWeek === 0 && (
+        <p className="rounded-control border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-500">
+          Nothing generated for this week yet — use "Generate this week" above, or add a one-off job.
+        </p>
+      )}
+
       {view === "month" ? (
         <MonthGrid
           days={monthGridDays}
@@ -594,11 +600,6 @@ export default function Roster() {
             <Skeleton key={i} className="h-20 w-full" />
           ))}
         </div>
-      ) : totalJobsThisWeek === 0 ? (
-        <EmptyState>
-          <p className="font-medium text-gray-600">Nothing generated for this week yet.</p>
-          <p className="mt-1 text-sm">Use "Generate this week" to build the roster from recurring patterns, or add a one-off job.</p>
-        </EmptyState>
       ) : view === "calendar" ? (
         <div className="overflow-x-auto pb-2">
           <div className="flex min-w-max gap-3">
@@ -645,6 +646,11 @@ export default function Roster() {
             );
           })}
         </div>
+      ) : byEmployee.length === 0 ? (
+        <EmptyState>
+          <p className="font-medium text-gray-600">Nothing generated for this week yet.</p>
+          <p className="mt-1 text-sm">Use "Generate this week" to build the roster from recurring patterns, or add a one-off job.</p>
+        </EmptyState>
       ) : (
         <div className="space-y-5">
           {byEmployee.map(([name, empJobs]) => (

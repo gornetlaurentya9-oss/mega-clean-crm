@@ -49,7 +49,22 @@ export default function EmployeeDetail() {
       toast.success("Employee deleted");
       navigate("/employees");
     },
-    onError: (err) => toast.error(err.message || "Could not delete employee"),
+    onError: (err) => {
+      // Blocked because of job history — offer a second, explicit confirmation to force it
+      // through anyway (e.g. cleaning up a test entry made while trying out the app). Any jobs
+      // referencing this employee get unassigned (not deleted) so that history stays intact.
+      if (err.message?.includes("job history") && employee.data) {
+        if (
+          window.confirm(
+            `${err.message}\n\nForce delete ${employee.data.name} anyway? Any jobs assigned to them will be unassigned (kept, not deleted) — this cannot be undone.`
+          )
+        ) {
+          remove.mutate({ id: employeeId, force: true });
+        }
+        return;
+      }
+      toast.error(err.message || "Could not delete employee");
+    },
   });
 
   const [timeOff, setTimeOff] = useState({ startDate: "", endDate: "", reason: "" });

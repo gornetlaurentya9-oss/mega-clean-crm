@@ -88,7 +88,7 @@ export default function Today() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-brand-navy">Today</h1>
+          <h1 className="text-2xl font-bold text-brand-navy">{isToday ? "Today" : format(parseISO(date), "EEEE d MMMM")}</h1>
           <p className="text-sm text-gray-500">Confirm what actually happened, job by job.</p>
         </div>
       </div>

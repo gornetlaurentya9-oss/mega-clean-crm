@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { desc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
 import { clients, jobs, recurringPatterns } from "../db/schema.js";
@@ -48,7 +48,7 @@ export const clientsRouter = router({
       const rows = await db
         .select()
         .from(clients)
-        .orderBy(desc(clients.createdAt));
+        .orderBy(asc(sql`lower(${clients.name})`));
       let result = rows.map(serialize);
       if (input?.status) {
         result = result.filter((c) => c.status === input.status);
@@ -112,17 +112,21 @@ export const clientsRouter = router({
     }),
 
   // Permanently removes a client — distinct from setStatus("inactive"), which just hides them
-  // from active use while preserving history. Blocked whenever the client has any jobs on
-  // record: jobs.clientId cascades on delete, so deleting a client with job history would
-  // silently wipe real invoicing/roster data. Only safe for a client that was never actually
-  // used (e.g. a duplicate or mistaken entry from a bulk import).
-  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-    const [jobCount] = await db.select().from(jobs).where(eq(jobs.clientId, input.id)).limit(1);
-    if (jobCount) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "This client has job history on record and can't be deleted — mark them inactive instead to keep that history.",
-      });
+  // from active use while preserving history. By default blocked whenever the client has any
+  // jobs on record: jobs.clientId cascades on delete, so deleting a client with job history
+  // would silently wipe real invoicing/roster data. Pass force:true to delete anyway (e.g.
+  // cleaning up a test entry that picked up real-looking job history while trying out the
+  // app) — the client's UI makes the caller confirm this explicitly, since it's genuinely
+  // destructive and irreversible.
+  remove: protectedProcedure.input(z.object({ id: z.number(), force: z.boolean().optional() })).mutation(async ({ input }) => {
+    if (!input.force) {
+      const [jobCount] = await db.select().from(jobs).where(eq(jobs.clientId, input.id)).limit(1);
+      if (jobCount) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This client has job history on record and can't be deleted — mark them inactive instead to keep that history.",
+        });
+      }
     }
     await db.delete(recurringPatterns).where(eq(recurringPatterns.clientId, input.id));
     await db.delete(clients).where(eq(clients.id, input.id));

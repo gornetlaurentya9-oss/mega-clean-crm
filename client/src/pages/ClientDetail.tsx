@@ -35,7 +35,21 @@ export default function ClientDetail() {
       toast.success("Client deleted");
       navigate("/clients");
     },
-    onError: (err) => toast.error(err.message || "Could not delete client"),
+    onError: (err) => {
+      // Blocked because of job history — offer a second, explicit confirmation to force it
+      // through anyway (e.g. cleaning up a test entry made while trying out the app).
+      if (err.message?.includes("job history") && client.data) {
+        if (
+          window.confirm(
+            `${err.message}\n\nForce delete ${client.data.name} anyway? This will permanently remove their job/billing history too — this cannot be undone.`
+          )
+        ) {
+          remove.mutate({ id: clientId, force: true });
+        }
+        return;
+      }
+      toast.error(err.message || "Could not delete client");
+    },
   });
 
   function handleDelete() {
