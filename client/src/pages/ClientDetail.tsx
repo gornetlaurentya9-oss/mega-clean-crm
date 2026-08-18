@@ -29,6 +29,21 @@ export default function ClientDetail() {
     },
     onError: () => toast.error("Could not update client status"),
   });
+  const remove = trpc.clients.remove.useMutation({
+    onSuccess: () => {
+      utils.clients.list.invalidate();
+      toast.success("Client deleted");
+      navigate("/clients");
+    },
+    onError: (err) => toast.error(err.message || "Could not delete client"),
+  });
+
+  function handleDelete() {
+    if (!client.data) return;
+    if (window.confirm(`Permanently delete ${client.data.name}? This can't be undone.`)) {
+      remove.mutate({ id: clientId });
+    }
+  }
 
   if (client.isLoading) return <SkeletonList rows={4} />;
   if (!client.data) return <div className="p-4 text-gray-500">Client not found.</div>;
@@ -88,7 +103,14 @@ export default function ClientDetail() {
               Deactivate
             </Button>
           )}
+          <Button size="sm" variant="danger" onClick={handleDelete} disabled={remove.isPending}>
+            Delete permanently
+          </Button>
         </div>
+        <p className="mb-3 text-xs text-gray-400">
+          "Delete permanently" removes this client entirely — only allowed if they have no job history yet. To keep
+          history but stop scheduling them, use Deactivate instead.
+        </p>
         <ClientForm
           defaultValues={{
             ...c,

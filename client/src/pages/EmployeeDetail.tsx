@@ -43,8 +43,23 @@ export default function EmployeeDetail() {
     },
     onError: () => toast.error("Could not remove time off"),
   });
+  const remove = trpc.employees.remove.useMutation({
+    onSuccess: () => {
+      utils.employees.list.invalidate();
+      toast.success("Employee deleted");
+      navigate("/employees");
+    },
+    onError: (err) => toast.error(err.message || "Could not delete employee"),
+  });
 
   const [timeOff, setTimeOff] = useState({ startDate: "", endDate: "", reason: "" });
+
+  function handleDelete() {
+    if (!employee.data) return;
+    if (window.confirm(`Permanently delete ${employee.data.name}? This can't be undone.`)) {
+      remove.mutate({ id: employeeId });
+    }
+  }
 
   if (employee.isLoading) return <SkeletonList rows={4} />;
   if (!employee.data) return <div className="p-4 text-gray-500">Employee not found.</div>;
@@ -85,7 +100,14 @@ export default function EmployeeDetail() {
               Mark inactive
             </Button>
           )}
+          <Button size="sm" variant="danger" onClick={handleDelete} disabled={remove.isPending}>
+            Delete permanently
+          </Button>
         </div>
+        <p className="mb-3 text-xs text-gray-400">
+          "Delete permanently" removes this employee entirely — only allowed if they have no job history yet. To
+          keep history but stop assigning them, use Mark inactive instead.
+        </p>
         <EmployeeForm
           defaultValues={{ ...e, hourlyPayRate: e.hourlyPayRate ?? undefined, status: e.status as any }}
           onSubmit={handleUpdate}

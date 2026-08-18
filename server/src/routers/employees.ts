@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
-import { employees, employeeTimeOff } from "../db/schema.js";
+import { employees, employeeTimeOff, jobs, recurringPatterns, clients } from "../db/schema.js";
 import { SERVICE_TYPES, EMPLOYEE_STATUSES, DAYS_OF_WEEK } from "../constants.js";
 
 const serviceTypeEnum = z.enum(SERVICE_TYPES);
@@ -106,6 +107,26 @@ export const employeesRouter = router({
 
   removeTimeOff: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
     await db.delete(employeeTimeOff).where(eq(employeeTimeOff.id, input.id));
+    return { success: true };
+  }),
+
+  // Permanently removes an employee — distinct from setStatus("inactive"). Blocked whenever the
+  // employee has any jobs on record: jobs.employeeId has no cascading FK, so deleting an
+  // employee referenced by past jobs would leave those historical rows pointing at nothing
+  // (silently losing "who did this job" from old invoices/roster records). Only safe for an
+  // employee who was never actually assigned to a job.
+  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const [jobRef] = await db.select().from(jobs).where(eq(jobs.employeeId, input.id)).limit(1);
+    if (jobRef) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "This employee has job history on record and can't be deleted — mark them inactive instead to keep that history.",
+      });
+    }
+    await db.delete(employeeTimeOff).where(eq(employeeTimeOff.employeeId, input.id));
+    await db.update(recurringPatterns).set({ defaultEmployeeId: null }).where(eq(recurringPatterns.defaultEmployeeId, input.id));
+    await db.update(clients).set({ defaultEmployeeId: null }).where(eq(clients.defaultEmployeeId, input.id));
+    await db.delete(employees).where(eq(employees.id, input.id));
     return { success: true };
   }),
 });

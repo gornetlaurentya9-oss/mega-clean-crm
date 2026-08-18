@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
-import { clients } from "../db/schema.js";
+import { clients, jobs, recurringPatterns } from "../db/schema.js";
 import { SERVICE_TYPES, FREQUENCIES, CLIENT_STATUSES, BILLING_RATE_TYPES } from "../constants.js";
 
 const serviceTypeEnum = z.enum(SERVICE_TYPES);
@@ -109,4 +110,22 @@ export const clientsRouter = router({
         .returning();
       return serialize(row);
     }),
+
+  // Permanently removes a client — distinct from setStatus("inactive"), which just hides them
+  // from active use while preserving history. Blocked whenever the client has any jobs on
+  // record: jobs.clientId cascades on delete, so deleting a client with job history would
+  // silently wipe real invoicing/roster data. Only safe for a client that was never actually
+  // used (e.g. a duplicate or mistaken entry from a bulk import).
+  remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const [jobCount] = await db.select().from(jobs).where(eq(jobs.clientId, input.id)).limit(1);
+    if (jobCount) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "This client has job history on record and can't be deleted — mark them inactive instead to keep that history.",
+      });
+    }
+    await db.delete(recurringPatterns).where(eq(recurringPatterns.clientId, input.id));
+    await db.delete(clients).where(eq(clients.id, input.id));
+    return { success: true };
+  }),
 });
