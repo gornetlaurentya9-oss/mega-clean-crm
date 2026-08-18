@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { Button, Input, Modal } from "./ui";
-import { SearchSelect } from "./SearchSelect";
+import { SearchMultiSelect } from "./SearchMultiSelect";
 import { useToast } from "./Toast";
 
 /**
@@ -15,13 +15,13 @@ export function RescheduleModal({ open, onClose, job }: { open: boolean; onClose
   const employees = trpc.employees.list.useQuery({ status: "active" }, { enabled: open });
   const [scheduledDate, setScheduledDate] = useState("");
   const [startTime, setStartTime] = useState("");
-  const [employeeId, setEmployeeId] = useState("");
+  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (open && job) {
       setScheduledDate(job.scheduledDate);
       setStartTime(job.startTime);
-      setEmployeeId(job.employeeId ? String(job.employeeId) : "");
+      setEmployeeIds((job.employeeIds ?? []).map((id: number) => String(id)));
     }
   }, [open, job]);
 
@@ -46,11 +46,11 @@ export function RescheduleModal({ open, onClose, job }: { open: boolean; onClose
           <Input label="New date" type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} required />
           <Input label="New start time" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
         </div>
-        <SearchSelect
-          label="Employee"
+        <SearchMultiSelect
+          label="Employees"
           placeholder="Unassigned"
-          value={employeeId}
-          onChange={setEmployeeId}
+          values={employeeIds}
+          onChange={setEmployeeIds}
           options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
         />
         {reschedule.error && <p className="text-sm text-red-600">{reschedule.error.message}</p>}
@@ -62,7 +62,7 @@ export function RescheduleModal({ open, onClose, job }: { open: boolean; onClose
               id: job.id,
               scheduledDate,
               startTime,
-              employeeId: employeeId ? Number(employeeId) : null,
+              employeeIds: employeeIds.map(Number),
             })
           }
         >

@@ -3,13 +3,14 @@ import { addDays, format, parseISO } from "date-fns";
 import { trpc } from "../lib/trpc";
 import { Button, Card, EmptyState, SkeletonList } from "../components/ui";
 import { useToast } from "../components/Toast";
+import { joinEmployeeFirstNamesForMessage } from "../lib/employeeNames";
 
 function buildMessage(job: any): string {
   const clientFirstName = job.clientName.split(" ")[0];
   const weekday = format(parseISO(job.scheduledDate), "EEEE");
-  const employeeFirstName = job.employeeName ? job.employeeName.split(" ")[0] : "our team";
+  const withWho = joinEmployeeFirstNamesForMessage(job.employeeNames, "our team");
   const time = job.startTime;
-  return `Hi ${clientFirstName}, just confirming your ${job.serviceType.toLowerCase()} tomorrow (${weekday}) at ${time} with ${employeeFirstName}. Reply if you need to reschedule!`;
+  return `Hi ${clientFirstName}, just confirming your ${job.serviceType.toLowerCase()} tomorrow (${weekday}) at ${time} with ${withWho}. Reply if you need to reschedule!`;
 }
 
 function IconCopy({ className }: { className?: string }) {

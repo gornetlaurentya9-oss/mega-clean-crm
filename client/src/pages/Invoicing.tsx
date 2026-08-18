@@ -4,6 +4,7 @@ import { trpc } from "../lib/trpc";
 import { Button, Card, EmptyState, Input, Skeleton, Table } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { formatCurrency } from "../lib/currency";
+import { formatEmployeeNames } from "../lib/employeeNames";
 
 function toCsv(rows: any[]): string {
   const headers = ["Client", "Service type", "Date", "Employee", "Hours", "Rate", "Rate type", "Total"];
@@ -13,7 +14,7 @@ function toCsv(rows: any[]): string {
       r.clientName,
       r.serviceType,
       r.scheduledDate,
-      r.employeeName ?? "",
+      formatEmployeeNames(r.employeeNames),
       r.actualHours ?? r.plannedDurationHours,
       r.billingRate,
       r.billingRateType,
@@ -146,7 +147,7 @@ export default function Invoicing() {
                       <tr key={j.id}>
                         <td className="px-3 py-2">{j.scheduledDate}</td>
                         <td className="px-3 py-2">{j.serviceType}</td>
-                        <td className="px-3 py-2">{j.employeeName ?? "—"}</td>
+                        <td className="px-3 py-2">{formatEmployeeNames(j.employeeNames)}</td>
                         <td className="px-3 py-2">{j.actualHours ?? j.plannedDurationHours}</td>
                         <td className="px-3 py-2">
                           {j.billingRateType === "per-hour"

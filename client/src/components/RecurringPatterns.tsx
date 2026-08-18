@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { SERVICE_TYPES, FREQUENCIES, DAYS_OF_WEEK, DAY_LABELS } from "../lib/constants";
-import { Button, Select, Input, EmptyState, cx } from "./ui";
-import { SearchSelect } from "./SearchSelect";
+import { Button, Select, Input, Modal, EmptyState, cx } from "./ui";
+import { SearchMultiSelect } from "./SearchMultiSelect";
 import { useToast } from "./Toast";
 
 export function RecurringPatterns({ clientId }: { clientId: number }) {
@@ -18,6 +18,7 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
     onSuccess: () => utils.recurringPatterns.list.invalidate({ clientId }),
   });
 
+  const [editPattern, setEditPattern] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     serviceType: SERVICE_TYPES[0] as string,
@@ -27,7 +28,9 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
     days: ["monday"] as string[],
     startTime: "09:00",
     durationHours: 2,
-    defaultEmployeeId: "" as string,
+    // Shared across every pattern created from a multi-day selection — e.g. Mon/Wed/Fri +
+    // Alice/Bob creates 3 patterns, each assigned to both Alice and Bob.
+    employeeIds: [] as string[],
     anchorDate: "" as string,
   });
 
@@ -53,7 +56,7 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
           dayOfWeek: day as any,
           startTime: form.startTime,
           durationHours: Number(form.durationHours),
-          defaultEmployeeId: form.defaultEmployeeId ? Number(form.defaultEmployeeId) : null,
+          employeeIds: form.employeeIds.map(Number),
           anchorDate: form.frequency === "every-3-weeks" && form.anchorDate ? form.anchorDate : null,
         });
       }
@@ -82,8 +85,14 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
                   <span className="text-gray-400"> (from {p.anchorDate ?? p.createdAt.slice(0, 10)})</span>
                 )}
                 {!p.active && <span className="ml-2 text-gray-400">(inactive)</span>}
+                <div className="text-xs text-gray-500">
+                  {p.employeeNames && p.employeeNames.length > 0 ? p.employeeNames.join(", ") : "Unassigned"}
+                </div>
               </div>
               <div className="flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setEditPattern(p)}>
+                  Edit
+                </Button>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -153,12 +162,14 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
           value={form.durationHours}
           onChange={(e) => setForm({ ...form, durationHours: Number(e.target.value) })}
         />
-        <SearchSelect
-          placeholder="No default employee"
-          value={form.defaultEmployeeId}
-          onChange={(v) => setForm({ ...form, defaultEmployeeId: v })}
-          options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
-        />
+        <div className="col-span-2 sm:col-span-3">
+          <SearchMultiSelect
+            placeholder="No employees assigned"
+            values={form.employeeIds}
+            onChange={(v) => setForm({ ...form, employeeIds: v })}
+            options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
+          />
+        </div>
         {form.frequency === "every-3-weeks" && (
           <Input
             type="date"
@@ -175,6 +186,147 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
               : "+ Add pattern"}
         </Button>
       </div>
+
+      <EditPatternModal
+        pattern={editPattern}
+        open={!!editPattern}
+        onClose={() => setEditPattern(null)}
+        employees={employees.data ?? []}
+        clientId={clientId}
+      />
     </div>
+  );
+}
+
+/**
+ * Edits a single existing recurring pattern row — unlike the "add pattern" form above, a pattern
+ * being edited is the single-day/single-employee-set record it actually is, so this never
+ * re-expands into multiple rows even though it shares the add form's field set (service type,
+ * frequency, one day, time, duration, employees). Same Modal pattern as JobModal/other edit
+ * flows in this app.
+ */
+function EditPatternModal({
+  pattern,
+  open,
+  onClose,
+  employees,
+  clientId,
+}: {
+  pattern: any;
+  open: boolean;
+  onClose: () => void;
+  employees: any[];
+  clientId: number;
+}) {
+  const utils = trpc.useUtils();
+  const toast = useToast();
+  const update = trpc.recurringPatterns.update.useMutation({
+    onSuccess: () => {
+      utils.recurringPatterns.list.invalidate({ clientId });
+      toast.success("Pattern updated");
+      onClose();
+    },
+    onError: () => toast.error("Could not update pattern"),
+  });
+
+  const [form, setForm] = useState({
+    serviceType: SERVICE_TYPES[0] as string,
+    frequency: "weekly" as string,
+    dayOfWeek: "monday" as string,
+    startTime: "09:00",
+    durationHours: 2,
+    employeeIds: [] as string[],
+    anchorDate: "" as string,
+    active: true,
+  });
+
+  useEffect(() => {
+    if (pattern) {
+      setForm({
+        serviceType: pattern.serviceType,
+        frequency: pattern.frequency,
+        dayOfWeek: pattern.dayOfWeek,
+        startTime: pattern.startTime,
+        durationHours: pattern.durationHours,
+        employeeIds: (pattern.employeeIds ?? []).map((id: number) => String(id)),
+        anchorDate: pattern.anchorDate ?? "",
+        active: pattern.active,
+      });
+    }
+  }, [pattern, open]);
+
+  if (!pattern) return null;
+
+  function submit() {
+    update.mutate({
+      id: pattern.id,
+      serviceType: form.serviceType as any,
+      frequency: form.frequency as any,
+      dayOfWeek: form.dayOfWeek as any,
+      startTime: form.startTime,
+      durationHours: Number(form.durationHours),
+      employeeIds: form.employeeIds.map(Number),
+      anchorDate: form.frequency === "every-3-weeks" && form.anchorDate ? form.anchorDate : null,
+      active: form.active,
+    });
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Edit recurring pattern">
+      <div className="space-y-4">
+        <Select label="Service type" value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })}>
+          {SERVICE_TYPES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Frequency" value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}>
+            {FREQUENCIES.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </Select>
+          <Select label="Day of week" value={form.dayOfWeek} onChange={(e) => setForm({ ...form, dayOfWeek: e.target.value })}>
+            {DAYS_OF_WEEK.map((d) => (
+              <option key={d} value={d}>
+                {DAY_LABELS[d]}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Start time" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+          <Input
+            label="Duration (hrs)"
+            type="number"
+            step="0.25"
+            value={form.durationHours}
+            onChange={(e) => setForm({ ...form, durationHours: Number(e.target.value) })}
+          />
+        </div>
+        <SearchMultiSelect
+          label="Employees"
+          placeholder="No employees assigned"
+          values={form.employeeIds}
+          onChange={(v) => setForm({ ...form, employeeIds: v })}
+          options={employees.map((emp) => ({ value: String(emp.id), label: emp.name }))}
+        />
+        {form.frequency === "every-3-weeks" && (
+          <Input
+            label="Anchor date"
+            type="date"
+            hint="First date of the 3-week cycle (defaults to when the pattern was created if left blank)"
+            value={form.anchorDate}
+            onChange={(e) => setForm({ ...form, anchorDate: e.target.value })}
+          />
+        )}
+        <Button className="w-full" onClick={submit} disabled={update.isPending}>
+          {update.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </div>
+    </Modal>
   );
 }

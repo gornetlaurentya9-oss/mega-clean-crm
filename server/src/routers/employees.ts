@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { asc, eq, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
-import { employees, employeeTimeOff, jobs, recurringPatterns, clients } from "../db/schema.js";
+import { employees, employeeTimeOff, clients, jobEmployees, recurringPatternEmployees } from "../db/schema.js";
 import { SERVICE_TYPES, EMPLOYEE_STATUSES, DAYS_OF_WEEK } from "../constants.js";
 
 const serviceTypeEnum = z.enum(SERVICE_TYPES);
@@ -111,15 +111,16 @@ export const employeesRouter = router({
   }),
 
   // Permanently removes an employee — distinct from setStatus("inactive"). By default blocked
-  // whenever the employee has any jobs on record: jobs.employeeId has no cascading FK, so
-  // deleting an employee referenced by past jobs would leave those historical rows pointing at
+  // whenever the employee has any jobs on record: job_employees.employeeId has no cascading FK,
+  // so deleting an employee referenced by past jobs would leave those historical rows pointing at
   // nothing (silently losing "who did this job" from old invoices/roster records). Pass
-  // force:true to delete anyway (e.g. cleaning up a test entry) — any jobs referencing this
-  // employee are unassigned (employeeId set to null) rather than deleted, so job/invoice
+  // force:true to delete anyway (e.g. cleaning up a test entry) — this employee's rows in
+  // job_employees/recurring_pattern_employees are deleted (unassigning them from those specific
+  // jobs/patterns) rather than the job/pattern rows themselves being touched, so job/invoice
   // history itself is preserved even when force-removing the employee who did the work.
   remove: protectedProcedure.input(z.object({ id: z.number(), force: z.boolean().optional() })).mutation(async ({ input }) => {
     if (!input.force) {
-      const [jobRef] = await db.select().from(jobs).where(eq(jobs.employeeId, input.id)).limit(1);
+      const [jobRef] = await db.select().from(jobEmployees).where(eq(jobEmployees.employeeId, input.id)).limit(1);
       if (jobRef) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -127,10 +128,10 @@ export const employeesRouter = router({
         });
       }
     } else {
-      await db.update(jobs).set({ employeeId: null }).where(eq(jobs.employeeId, input.id));
+      await db.delete(jobEmployees).where(eq(jobEmployees.employeeId, input.id));
+      await db.delete(recurringPatternEmployees).where(eq(recurringPatternEmployees.employeeId, input.id));
     }
     await db.delete(employeeTimeOff).where(eq(employeeTimeOff.employeeId, input.id));
-    await db.update(recurringPatterns).set({ defaultEmployeeId: null }).where(eq(recurringPatterns.defaultEmployeeId, input.id));
     await db.update(clients).set({ defaultEmployeeId: null }).where(eq(clients.defaultEmployeeId, input.id));
     await db.delete(employees).where(eq(employees.id, input.id));
     return { success: true };

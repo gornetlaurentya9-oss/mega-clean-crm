@@ -69,7 +69,6 @@ export const recurringPatterns = pgTable("recurring_patterns", {
   dayOfWeek: text("day_of_week").notNull(),
   startTime: text("start_time").notNull(), // HH:mm
   durationHours: real("duration_hours").notNull(),
-  defaultEmployeeId: integer("default_employee_id"),
   active: boolean("active").notNull().default(true),
   // YYYY-MM-DD. Used only by "every-3-weeks" (a 3-week cycle needs a fixed reference point to
   // know which week is "week 1" — unlike fortnightly, which gets away with global ISO-week
@@ -79,12 +78,25 @@ export const recurringPatterns = pgTable("recurring_patterns", {
   ...timestamps,
 });
 
+// Many-to-many: which employee(s) a recurring pattern is assigned to (a house that always gets
+// cleaned by two people at once, e.g.). `patternId` is a real FK with cascade — this row's only
+// purpose is describing that one pattern's assignment, so it should vanish with it.
+// `employeeId` deliberately has no FK, same rationale as jobs.employeeId below: deleting an
+// employee should unassign them from patterns, not silently break/cascade-delete pattern history
+// that isn't really "theirs" to take down. See `employees.remove` (force-delete path).
+export const recurringPatternEmployees = pgTable("recurring_pattern_employees", {
+  id: serial("id").primaryKey(),
+  patternId: integer("pattern_id")
+    .notNull()
+    .references(() => recurringPatterns.id, { onDelete: "cascade" }),
+  employeeId: integer("employee_id").notNull(),
+});
+
 export const jobs = pgTable("jobs", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id")
     .notNull()
     .references(() => clients.id, { onDelete: "cascade" }),
-  employeeId: integer("employee_id"),
   serviceType: text("service_type").notNull(),
   scheduledDate: text("scheduled_date").notNull(), // YYYY-MM-DD — the CURRENT date this job is on (moves on reschedule).
   // The date this job was originally generated for by a recurring pattern (set once, never changes).
@@ -104,6 +116,22 @@ export const jobs = pgTable("jobs", {
   // set automatically and never blocks any other flow.
   clientResponseStatus: text("client_response_status").notNull().default("confirmed"),
   ...timestamps,
+});
+
+// Many-to-many: which employee(s) a job is assigned to — most jobs have one, but some houses
+// get cleaned by two people at once (one client, one visit, one time slot, multiple cleaners).
+// `jobId` is a real FK with cascade — this row's only purpose is describing that one job's
+// assignment, so it should vanish when the job itself is deleted (unlike the old
+// `jobs.employeeId`, which was deliberately not an FK — see the note that used to live here,
+// now on `employeeId` below). `employeeId` has no FK: deleting an employee should unassign them
+// from a job, not orphan/cascade-delete the job's own history. See `employees.remove`
+// (force-delete path), which deletes the employee's rows here rather than the job itself.
+export const jobEmployees = pgTable("job_employees", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id")
+    .notNull()
+    .references(() => jobs.id, { onDelete: "cascade" }),
+  employeeId: integer("employee_id").notNull(),
 });
 
 // One row per approved week, keyed by the Monday (`weekStart`, YYYY-MM-DD) that identifies the

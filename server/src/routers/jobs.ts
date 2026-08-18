@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, eq, gte, lte, or } from "drizzle-orm";
+import { and, eq, gte, lte, or, inArray } from "drizzle-orm";
 import { addDays, format, parseISO, getISOWeek, getDate, differenceInCalendarWeeks } from "date-fns";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
-import { jobs, clients, employees, recurringPatterns } from "../db/schema.js";
+import { jobs, clients, employees, recurringPatterns, jobEmployees, recurringPatternEmployees } from "../db/schema.js";
 import { SERVICE_TYPES, JOB_STATUSES, DAYS_OF_WEEK, CLIENT_RESPONSE_STATUSES } from "../constants.js";
 import { computeConflicts } from "../conflicts.js";
 
@@ -14,7 +14,10 @@ const BILLABLE_STATUSES = ["completed", "cancelled-partial"] as const;
 
 const jobInput = z.object({
   clientId: z.number(),
-  employeeId: z.number().int().optional().nullable(),
+  // Multiple employees can be assigned to one job (e.g. a house cleaned by two people at once) —
+  // one client, one visit, one time slot, but N cleaners. Billing stays per-job regardless of
+  // how many employees are assigned; see clients.billingRate/billingRateType.
+  employeeIds: z.array(z.number().int()).optional().default([]),
   serviceType: z.enum(SERVICE_TYPES),
   scheduledDate: z.string(), // YYYY-MM-DD
   startTime: z.string(), // HH:mm
@@ -25,17 +28,35 @@ const jobInput = z.object({
 
 function withJoins() {
   return db
-    .select({
-      job: jobs,
-      client: clients,
-      employee: employees,
-    })
+    .select({ job: jobs, client: clients })
     .from(jobs)
-    .leftJoin(clients, eq(jobs.clientId, clients.id))
-    .leftJoin(employees, eq(jobs.employeeId, employees.id));
+    .leftJoin(clients, eq(jobs.clientId, clients.id));
 }
 
-function flatten(row: { job: typeof jobs.$inferSelect; client: typeof clients.$inferSelect | null; employee: typeof employees.$inferSelect | null }) {
+/** Attaches assigned-employee ids/names to a batch of flattened (client-joined) job rows in one
+ *  extra query, rather than N+1 per-job lookups. */
+async function attachEmployees<T extends { id: number }>(rows: T[]): Promise<(T & { employeeIds: number[]; employeeNames: string[] })[]> {
+  if (rows.length === 0) return [];
+  const jobIds = rows.map((r) => r.id);
+  const assignments = await db
+    .select({ jobId: jobEmployees.jobId, employee: employees })
+    .from(jobEmployees)
+    .leftJoin(employees, eq(jobEmployees.employeeId, employees.id))
+    .where(inArray(jobEmployees.jobId, jobIds));
+
+  const byJob = new Map<number, { id: number; name: string }[]>();
+  for (const a of assignments) {
+    if (!a.employee) continue; // employee row missing (deleted without cleanup) — skip defensively
+    byJob.set(a.jobId, [...(byJob.get(a.jobId) ?? []), { id: a.employee.id, name: a.employee.name }]);
+  }
+
+  return rows.map((row) => {
+    const assigned = (byJob.get(row.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+    return { ...row, employeeIds: assigned.map((e) => e.id), employeeNames: assigned.map((e) => e.name) };
+  });
+}
+
+function flattenOne(row: { job: typeof jobs.$inferSelect; client: typeof clients.$inferSelect | null }) {
   return {
     ...row.job,
     clientName: row.client?.name ?? "Unknown client",
@@ -45,9 +66,22 @@ function flatten(row: { job: typeof jobs.$inferSelect; client: typeof clients.$i
     clientStatus: row.client?.status ?? "inactive",
     billingRate: row.client?.billingRate ?? 0,
     billingRateType: row.client?.billingRateType ?? "per-visit",
-    employeeName: row.employee?.name ?? null,
-    employeePhone: row.employee?.phone ?? null,
   };
+}
+
+async function flattenRows(rows: { job: typeof jobs.$inferSelect; client: typeof clients.$inferSelect | null }[]) {
+  return attachEmployees(rows.map(flattenOne));
+}
+
+/** Replaces a job's assigned-employee set with `employeeIds` (delete then re-insert — no
+ *  established transaction helper in this codebase, see generateWeek/employees.remove for the
+ *  same sequential-await style over multi-step mutations). */
+async function setJobEmployees(jobId: number, employeeIds: number[]) {
+  await db.delete(jobEmployees).where(eq(jobEmployees.jobId, jobId));
+  const unique = [...new Set(employeeIds)];
+  if (unique.length > 0) {
+    await db.insert(jobEmployees).values(unique.map((employeeId) => ({ jobId, employeeId })));
+  }
 }
 
 export const jobsRouter = router({
@@ -68,32 +102,42 @@ export const jobsRouter = router({
       if (input.clientId) conditions.push(eq(jobs.clientId, input.clientId));
       const query = withJoins();
       const rows = conditions.length ? await query.where(and(...conditions)) : await query;
-      return rows.map(flatten).sort((a, b) => (a.scheduledDate + a.startTime).localeCompare(b.scheduledDate + b.startTime));
+      const flattened = await flattenRows(rows);
+      return flattened.sort((a, b) => (a.scheduledDate + a.startTime).localeCompare(b.scheduledDate + b.startTime));
     }),
 
   byId: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const rows = await withJoins().where(eq(jobs.id, input.id));
     const row = rows[0];
-    return row ? flatten(row) : null;
+    if (!row) return null;
+    const [flattened] = await flattenRows([row]);
+    return flattened;
   }),
 
   create: protectedProcedure.input(jobInput).mutation(async ({ input }) => {
+    const { employeeIds, ...rest } = input;
     const [row] = await db
       .insert(jobs)
-      .values({ ...input, updatedAt: new Date().toISOString() })
+      .values({ ...rest, updatedAt: new Date().toISOString() })
       .returning();
+    if (employeeIds.length > 0) {
+      await db.insert(jobEmployees).values(employeeIds.map((employeeId) => ({ jobId: row.id, employeeId })));
+    }
     return row;
   }),
 
   update: protectedProcedure
     .input(jobInput.partial().extend({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const { id, ...rest } = input;
+      const { id, employeeIds, ...rest } = input;
       const [row] = await db
         .update(jobs)
         .set({ ...rest, updatedAt: new Date().toISOString() })
         .where(eq(jobs.id, id))
         .returning();
+      if (employeeIds !== undefined) {
+        await setJobEmployees(id, employeeIds);
+      }
       return row;
     }),
 
@@ -135,7 +179,8 @@ export const jobsRouter = router({
   // (completed / cancelled-partial) — deleting those would silently remove real invoicing
   // data with no record; use Cancel instead to reverse a mistaken "completed" while keeping
   // a trace. If this job came from an active recurring pattern, the next "Generate this week"
-  // will simply recreate it, same as if it had never been generated.
+  // will simply recreate it, same as if it had never been generated. job_employees rows for
+  // this job cascade-delete automatically (see schema.ts).
   remove: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
     const [row] = await db.select().from(jobs).where(eq(jobs.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found" });
@@ -149,7 +194,7 @@ export const jobsRouter = router({
     return { success: true };
   }),
 
-  // Move a job to a new date/time (and optionally reassign the employee) IN PLACE — same row,
+  // Move a job to a new date/time (and optionally reassign the employee(s)) IN PLACE — same row,
   // same id, so nothing is orphaned or duplicated. Resets status to "scheduled" since it needs
   // reconfirming at the new slot. Not allowed once a job is cancelled/completed — reverse or
   // re-add instead.
@@ -159,7 +204,7 @@ export const jobsRouter = router({
         id: z.number(),
         scheduledDate: z.string(),
         startTime: z.string(),
-        employeeId: z.number().int().optional().nullable(),
+        employeeIds: z.array(z.number().int()).optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -179,12 +224,14 @@ export const jobsRouter = router({
         .set({
           scheduledDate: input.scheduledDate,
           startTime: input.startTime,
-          employeeId: input.employeeId !== undefined ? input.employeeId : existing.employeeId,
           status: "scheduled",
           updatedAt: new Date().toISOString(),
         })
         .where(eq(jobs.id, input.id))
         .returning();
+      if (input.employeeIds !== undefined) {
+        await setJobEmployees(input.id, input.employeeIds);
+      }
       return row;
     }),
 
@@ -296,7 +343,6 @@ export const jobsRouter = router({
           .insert(jobs)
           .values({
             clientId: pattern.clientId,
-            employeeId: pattern.defaultEmployeeId ?? null,
             serviceType: pattern.serviceType,
             scheduledDate: dateStr,
             originalDate: dateStr,
@@ -307,6 +353,18 @@ export const jobsRouter = router({
             updatedAt: new Date().toISOString(),
           })
           .returning();
+
+        // Carry the pattern's assigned employee(s) over onto the generated job.
+        const patternAssignments = await db
+          .select()
+          .from(recurringPatternEmployees)
+          .where(eq(recurringPatternEmployees.patternId, pattern.id));
+        if (patternAssignments.length > 0) {
+          await db
+            .insert(jobEmployees)
+            .values(patternAssignments.map((a) => ({ jobId: row.id, employeeId: a.employeeId })));
+        }
+
         created.push(row);
       }
 
@@ -328,7 +386,7 @@ export const jobsRouter = router({
     .query(async ({ input }) => {
       const date = input.date ?? format(addDays(new Date(), 1), "yyyy-MM-dd");
       const rawRows = await withJoins().where(eq(jobs.scheduledDate, date));
-      const rows = rawRows.map(flatten).filter((j) => j.status === "scheduled" || j.status === "confirmed");
+      const rows = (await flattenRows(rawRows)).filter((j) => j.status === "scheduled" || j.status === "confirmed");
       return rows;
     }),
 
@@ -344,7 +402,7 @@ export const jobsRouter = router({
         or(...BILLABLE_STATUSES.map((s) => eq(jobs.status, s)))
       )
     );
-    const rows = rawRows.map(flatten);
+    const rows = await flattenRows(rawRows);
 
     return rows
       .map((j) => {

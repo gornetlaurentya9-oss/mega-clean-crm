@@ -6,6 +6,7 @@ import { Badge, Button, Card, EmptyState, Skeleton, SkeletonList } from "../comp
 import { CompleteJobModal } from "../components/CompleteJobModal";
 import { ArrowRightIcon, SparkleIcon } from "../components/Icons";
 import { formatCurrency } from "../lib/currency";
+import { formatEmployeeNames } from "../lib/employeeNames";
 
 function IconCalendar() {
   return (
@@ -211,7 +212,7 @@ export default function Dashboard() {
                       <span className="font-medium text-brand-primary">{dayLabel(j.scheduledDate)}</span> {j.startTime} ·{" "}
                       {j.clientName}
                     </span>
-                    <span className="shrink-0 text-xs text-gray-500">{j.employeeName ?? "Unassigned"}</span>
+                    <span className="shrink-0 text-xs text-gray-500">{formatEmployeeNames(j.employeeNames)}</span>
                   </li>
                 ))}
               </ul>
@@ -265,7 +266,7 @@ export default function Dashboard() {
                     className="flex items-center justify-between gap-2 rounded-control border border-gray-200 bg-white p-3 text-sm shadow-soft"
                   >
                     <span className="min-w-0 truncate">
-                      {j.scheduledDate} · {j.clientName} · {j.employeeName ?? "Unassigned"}
+                      {j.scheduledDate} · {j.clientName} · {formatEmployeeNames(j.employeeNames)}
                     </span>
                     <Button size="sm" onClick={() => setCompleteJob(j)}>
                       Mark complete

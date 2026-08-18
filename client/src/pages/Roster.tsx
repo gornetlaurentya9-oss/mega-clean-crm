@@ -22,6 +22,7 @@ import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
 import { CancelJobModal } from "../components/CancelJobModal";
 import { RescheduleModal } from "../components/RescheduleModal";
+import { formatEmployeeNames } from "../lib/employeeNames";
 
 const statusTone: Record<string, "gray" | "green" | "yellow" | "red" | "blue"> = {
   scheduled: "blue",
@@ -282,11 +283,15 @@ export default function Roster() {
     return map;
   }, [jobs.data, days]);
 
+  // A job with two assigned employees needs to show up under BOTH their sections, not just one —
+  // so this fans a job out across every name in its `employeeNames`, not just the first.
   const byEmployee = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const j of jobs.data ?? []) {
-      const key = j.employeeName ?? "Unassigned";
-      map.set(key, [...(map.get(key) ?? []), j]);
+      const names: string[] = j.employeeNames && j.employeeNames.length > 0 ? j.employeeNames : ["Unassigned"];
+      for (const key of names) {
+        map.set(key, [...(map.get(key) ?? []), j]);
+      }
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [jobs.data]);
@@ -331,7 +336,7 @@ export default function Roster() {
               {job.startTime} · {job.clientName}
             </div>
             <div className="text-xs text-gray-500">
-              {job.serviceType} · {job.employeeName ?? "Unassigned"} · {job.plannedDurationHours}h
+              {job.serviceType} · {formatEmployeeNames(job.employeeNames)} · {job.plannedDurationHours}h
               {job.status === "cancelled-partial" && job.actualHours != null && <> · billed {job.actualHours}h</>}
             </div>
           </div>
@@ -421,7 +426,7 @@ export default function Roster() {
         <div className={cx("font-semibold text-gray-900", cancelled && "opacity-60 line-through")}>
           {job.startTime} · {job.clientName}
         </div>
-        <div className={cx("mt-0.5 text-gray-500", cancelled && "opacity-60")}>{job.employeeName ?? "Unassigned"}</div>
+        <div className={cx("mt-0.5 text-gray-500", cancelled && "opacity-60")}>{formatEmployeeNames(job.employeeNames)}</div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <Badge tone={statusTone[job.status] ?? "gray"}>{statusLabel[job.status] ?? job.status}</Badge>
           {hasConflict && <IconAlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />}

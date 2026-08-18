@@ -3,6 +3,7 @@ import { trpc } from "../lib/trpc";
 import { SERVICE_TYPES } from "../lib/constants";
 import { Button, Input, Modal, Select } from "./ui";
 import { SearchSelect } from "./SearchSelect";
+import { SearchMultiSelect } from "./SearchMultiSelect";
 import { useToast } from "./Toast";
 
 // Manual status edits here are limited to the two "still upcoming" states. Completing, cancelling
@@ -27,7 +28,7 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
 
   const [form, setForm] = useState({
     clientId: "",
-    employeeId: "",
+    employeeIds: [] as string[],
     serviceType: SERVICE_TYPES[0] as string,
     scheduledDate: defaultDate ?? "",
     startTime: "09:00",
@@ -39,7 +40,7 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
     if (job) {
       setForm({
         clientId: String(job.clientId),
-        employeeId: job.employeeId ? String(job.employeeId) : "",
+        employeeIds: (job.employeeIds ?? []).map((id: number) => String(id)),
         serviceType: job.serviceType,
         scheduledDate: job.scheduledDate,
         startTime: job.startTime,
@@ -72,7 +73,7 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
   function submit() {
     const payload = {
       clientId: Number(form.clientId),
-      employeeId: form.employeeId ? Number(form.employeeId) : null,
+      employeeIds: form.employeeIds.map(Number),
       serviceType: form.serviceType as any,
       scheduledDate: form.scheduledDate,
       startTime: form.startTime,
@@ -131,11 +132,11 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
             value={form.plannedDurationHours}
             onChange={(e) => setForm({ ...form, plannedDurationHours: Number(e.target.value) })}
           />
-          <SearchSelect
-            label="Employee"
+          <SearchMultiSelect
+            label="Employees"
             placeholder="Unassigned"
-            value={form.employeeId}
-            onChange={(v) => setForm({ ...form, employeeId: v })}
+            values={form.employeeIds}
+            onChange={(v) => setForm({ ...form, employeeIds: v })}
             options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
           />
         </div>

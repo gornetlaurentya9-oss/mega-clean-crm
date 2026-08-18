@@ -8,6 +8,7 @@ import { JobModal } from "../components/JobModal";
 import { CompleteJobModal } from "../components/CompleteJobModal";
 import { CancelJobModal } from "../components/CancelJobModal";
 import { useToast } from "../components/Toast";
+import { formatEmployeeNames } from "../lib/employeeNames";
 
 const statusTone: Record<string, "gray" | "green" | "yellow" | "red" | "blue"> = {
   scheduled: "blue",
@@ -168,7 +169,7 @@ export default function Today() {
                       {job.startTime} · {job.clientName}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {job.serviceType} · {job.employeeName ?? "Unassigned"} · {job.plannedDurationHours}h
+                      {job.serviceType} · {formatEmployeeNames(job.employeeNames)} · {job.plannedDurationHours}h
                       {resolved && job.actualHours != null && <> · billed {job.actualHours}h</>}
                     </div>
                     {job.completionNotes && <div className="mt-1 text-xs text-gray-500">Notes: {job.completionNotes}</div>}

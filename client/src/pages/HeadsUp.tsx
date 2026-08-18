@@ -4,6 +4,7 @@ import { trpc } from "../lib/trpc";
 import { Button, Card, EmptyState, SkeletonList } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { BellIcon, ChevronLeftIcon, ChevronRightIcon } from "../components/Icons";
+import { joinEmployeeFirstNamesForMessage } from "../lib/employeeNames";
 
 function IconCopy({ className }: { className?: string }) {
   return (
@@ -18,8 +19,8 @@ function buildMessage(job: any): string {
   const clientFirstName = job.clientName.split(" ")[0];
   const weekday = format(parseISO(job.scheduledDate), "EEEE");
   const date = format(parseISO(job.scheduledDate), "d MMM");
-  const employeeFirstName = job.employeeName ? job.employeeName.split(" ")[0] : "our team";
-  return `Hi ${clientFirstName}, just a heads-up — you're booked in for your ${job.serviceType.toLowerCase()} on ${weekday} ${date} at ${job.startTime} with ${employeeFirstName}. Let me know if that doesn't work for you!`;
+  const withWho = joinEmployeeFirstNamesForMessage(job.employeeNames, "our team");
+  return `Hi ${clientFirstName}, just a heads-up — you're booked in for your ${job.serviceType.toLowerCase()} on ${weekday} ${date} at ${job.startTime} with ${withWho}. Let me know if that doesn't work for you!`;
 }
 
 /**

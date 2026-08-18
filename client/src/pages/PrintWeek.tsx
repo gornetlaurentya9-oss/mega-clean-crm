@@ -17,8 +17,11 @@ export default function PrintWeek() {
 
   if (jobs.isLoading || employee.isLoading) return <Spinner />;
 
+  // A job assigned to more than one employee (two cleaners on one visit) must appear on every
+  // one of their printed pages, not just the first — hence checking membership in employeeIds
+  // rather than a single equality check against the old singular employeeId.
   const myJobs = (jobs.data ?? [])
-    .filter((j) => j.employeeId === Number(employeeId) && j.status !== "cancelled")
+    .filter((j) => (j.employeeIds ?? []).includes(Number(employeeId)) && j.status !== "cancelled")
     .sort((a, b) => (a.scheduledDate + a.startTime).localeCompare(b.scheduledDate + b.startTime));
 
   return (
@@ -47,20 +50,27 @@ export default function PrintWeek() {
                 <th className="py-2 pr-2">Client</th>
                 <th className="py-2 pr-2">Address</th>
                 <th className="py-2 pr-2">Service</th>
-                <th className="py-2">Duration</th>
+                <th className="py-2 pr-2">Duration</th>
+                <th className="py-2">With</th>
               </tr>
             </thead>
             <tbody>
-              {myJobs.map((j) => (
-                <tr key={j.id} className="border-b border-gray-200 align-top">
-                  <td className="py-2 pr-2">{format(parseISO(j.scheduledDate), "EEE d MMM")}</td>
-                  <td className="py-2 pr-2">{j.startTime}</td>
-                  <td className="py-2 pr-2">{j.clientName}</td>
-                  <td className="py-2 pr-2">{j.clientAddress}</td>
-                  <td className="py-2 pr-2">{j.serviceType}</td>
-                  <td className="py-2">{j.plannedDurationHours}h</td>
-                </tr>
-              ))}
+              {myJobs.map((j) => {
+                // Other employee(s) sharing this job — a house cleaned by two people at once —
+                // so it's clear on the printed page who else is expected on site.
+                const others = (j.employeeNames ?? []).filter((n: string, i: number) => (j.employeeIds ?? [])[i] !== Number(employeeId));
+                return (
+                  <tr key={j.id} className="border-b border-gray-200 align-top">
+                    <td className="py-2 pr-2">{format(parseISO(j.scheduledDate), "EEE d MMM")}</td>
+                    <td className="py-2 pr-2">{j.startTime}</td>
+                    <td className="py-2 pr-2">{j.clientName}</td>
+                    <td className="py-2 pr-2">{j.clientAddress}</td>
+                    <td className="py-2 pr-2">{j.serviceType}</td>
+                    <td className="py-2 pr-2">{j.plannedDurationHours}h</td>
+                    <td className="py-2 text-gray-500">{others.length > 0 ? others.join(", ") : "—"}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
