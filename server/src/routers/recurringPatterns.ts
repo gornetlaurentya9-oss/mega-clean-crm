@@ -14,6 +14,8 @@ const patternInput = z.object({
   durationHours: z.number().positive(),
   defaultEmployeeId: z.number().int().optional().nullable(),
   active: z.boolean().optional().default(true),
+  // Only meaningful for "every-3-weeks" — see schema.ts. Optional; falls back to createdAt.
+  anchorDate: z.string().optional().nullable(),
 });
 
 export const recurringPatternsRouter = router({

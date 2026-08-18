@@ -8,7 +8,7 @@ export const SERVICE_TYPES = [
 
 export type ServiceType = (typeof SERVICE_TYPES)[number];
 
-export const FREQUENCIES = ["weekly", "fortnightly", "monthly", "one-off"] as const;
+export const FREQUENCIES = ["weekly", "fortnightly", "every-3-weeks", "monthly", "one-off"] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
 
 export const CLIENT_STATUSES = ["active", "paused", "inactive"] as const;

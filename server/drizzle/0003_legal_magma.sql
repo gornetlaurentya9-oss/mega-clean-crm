@@ -1,0 +1,1 @@
+ALTER TABLE "recurring_patterns" ADD COLUMN "anchor_date" text;

@@ -5,7 +5,7 @@ export const SERVICE_TYPES = [
   "Carpet cleaning",
 ] as const;
 
-export const FREQUENCIES = ["weekly", "fortnightly", "monthly", "one-off"] as const;
+export const FREQUENCIES = ["weekly", "fortnightly", "every-3-weeks", "monthly", "one-off"] as const;
 export const CLIENT_STATUSES = ["active", "paused", "inactive"] as const;
 export const EMPLOYEE_STATUSES = ["active", "inactive"] as const;
 export const BILLING_RATE_TYPES = ["per-hour", "per-visit"] as const;

@@ -71,6 +71,11 @@ export const recurringPatterns = pgTable("recurring_patterns", {
   durationHours: real("duration_hours").notNull(),
   defaultEmployeeId: integer("default_employee_id"),
   active: boolean("active").notNull().default(true),
+  // YYYY-MM-DD. Used only by "every-3-weeks" (a 3-week cycle needs a fixed reference point to
+  // know which week is "week 1" — unlike fortnightly, which gets away with global ISO-week
+  // parity). Null falls back to this pattern's createdAt date. Nullable rather than required so
+  // existing weekly/fortnightly/monthly patterns don't need one.
+  anchorDate: text("anchor_date"),
   ...timestamps,
 });
 

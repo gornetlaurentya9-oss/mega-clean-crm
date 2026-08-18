@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, eq, gte, lte, or } from "drizzle-orm";
-import { addDays, format, parseISO, getISOWeek, getDate } from "date-fns";
+import { addDays, format, parseISO, getISOWeek, getDate, differenceInCalendarWeeks } from "date-fns";
 import { protectedProcedure, router } from "../trpc.js";
 import { db } from "../db/index.js";
 import { jobs, clients, employees, recurringPatterns } from "../db/schema.js";
@@ -234,6 +234,14 @@ export const jobsRouter = router({
           // Alternate weeks based on ISO week number parity — simple, deterministic, no extra state.
           const weekNum = getISOWeek(occurrenceDate);
           if (weekNum % 2 !== 0) continue;
+        }
+        if (pattern.frequency === "every-3-weeks") {
+          // Unlike fortnightly's global ISO-week parity, a 3-week cycle needs a fixed reference
+          // point — otherwise "every 3 weeks" is ambiguous (which week is week 1?). Anchor to
+          // anchorDate if set, else this pattern's own createdAt date.
+          const anchor = parseISO((pattern.anchorDate ?? pattern.createdAt.slice(0, 10)) as string);
+          const weeksSinceAnchor = differenceInCalendarWeeks(occurrenceDate, anchor, { weekStartsOn: 1 });
+          if (((weeksSinceAnchor % 3) + 3) % 3 !== 0) continue;
         }
         if (pattern.frequency === "monthly") {
           // Only generate on the first occurrence of this weekday in the month.

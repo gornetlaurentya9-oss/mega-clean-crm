@@ -24,6 +24,7 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
     startTime: "09:00",
     durationHours: 2,
     defaultEmployeeId: "" as string,
+    anchorDate: "" as string,
   });
 
   function submit() {
@@ -35,6 +36,7 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
       startTime: form.startTime,
       durationHours: Number(form.durationHours),
       defaultEmployeeId: form.defaultEmployeeId ? Number(form.defaultEmployeeId) : null,
+      anchorDate: form.frequency === "every-3-weeks" && form.anchorDate ? form.anchorDate : null,
     });
   }
 
@@ -47,6 +49,9 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
               <div className="text-sm">
                 <span className="font-medium">{DAY_LABELS[p.dayOfWeek]}</span> {p.startTime} · {p.durationHours}h ·{" "}
                 {p.serviceType} · {p.frequency}
+                {p.frequency === "every-3-weeks" && (
+                  <span className="text-gray-400"> (from {p.anchorDate ?? p.createdAt.slice(0, 10)})</span>
+                )}
                 {!p.active && <span className="ml-2 text-gray-400">(inactive)</span>}
               </div>
               <div className="flex gap-2">
@@ -106,6 +111,14 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
             </option>
           ))}
         </Select>
+        {form.frequency === "every-3-weeks" && (
+          <Input
+            type="date"
+            title="First date of the 3-week cycle (defaults to today if left blank)"
+            value={form.anchorDate}
+            onChange={(e) => setForm({ ...form, anchorDate: e.target.value })}
+          />
+        )}
         <Button className="col-span-2 sm:col-span-3" variant="secondary" onClick={submit} disabled={create.isPending}>
           + Add pattern
         </Button>

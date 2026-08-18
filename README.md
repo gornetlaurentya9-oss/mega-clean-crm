@@ -71,7 +71,7 @@ See `server/src/db/schema.ts` for the full Drizzle schema:
 
 - **clients** — contact info, service types, default frequency/day/time/duration, default employee, access notes (key codes, alarms, pets, parking), billing rate + type, status.
 - **employees** — contact info, qualified service types, hourly pay rate, status, a weekly availability pattern (JSON), plus a separate **employee_time_off** table for date-range leave.
-- **recurring_patterns** — per-client recurring cleans (service type, frequency, day of week, time, duration, default employee) that feed the roster generator.
+- **recurring_patterns** — per-client recurring cleans (service type, frequency, day of week, time, duration, default employee) that feed the roster generator. `frequency` is one of `weekly`, `fortnightly`, `every-3-weeks`, `monthly`, `one-off`. `every-3-weeks` carries an optional `anchorDate` (falls back to the pattern's `createdAt` date) since a 3-week cycle needs a fixed reference point to know which week is "week 1" — see [Deviations](#deviations--phase-2-ideas).
 - **jobs** — one row per scheduled clean (one primary employee, nullable), with status, actual hours, completion notes, a `clientResponseStatus` (`confirmed` | `change-requested`, independent of `status` — see [Two-stage messaging](#two-stage-messaging--client-response-status)), and an optional link back to the recurring pattern that generated it (`null` = one-off job).
 - **week_approvals** — one row per week the owner has explicitly approved, keyed by `weekStart` (the Monday, `YYYY-MM-DD`, primary key) with an `approvedAt` timestamp. See [Week approval](#week-approval).
 
@@ -149,7 +149,7 @@ Prepare your files as plain CSV with a header row exactly matching the column na
 | 3 | `address` | No | free text | `""` |
 | 4 | `email` | No | must look like an email if present (`x@y.z`) | `""` |
 | 5 | `serviceTypes` | No | one or more of: `Deep cleaning`, `Regular cleaning – commercial`, `Regular cleaning – domestic`, `Carpet cleaning` — separate multiple with `;` (semicolon), e.g. `Deep cleaning;Carpet cleaning`. Case-insensitive, but must match one of these exactly otherwise. Note "commercial"/"domestic" use an en dash (–), not a hyphen. | `[]` (none) |
-| 6 | `defaultFrequency` | No | one of: `weekly`, `fortnightly`, `monthly`, `one-off` | `weekly` |
+| 6 | `defaultFrequency` | No | one of: `weekly`, `fortnightly`, `every-3-weeks`, `monthly`, `one-off` | `weekly` |
 | 7 | `preferredDay` | No | one of: `monday`, `tuesday`, `wednesday`, `thursday`, `friday`, `saturday`, `sunday` | none |
 | 8 | `preferredTimeWindow` | No | free text, e.g. `9-11am` | `""` |
 | 9 | `defaultDurationHours` | No | positive number, e.g. `2` or `1.5` | none |
@@ -226,7 +226,7 @@ This runs any pending Drizzle migrations (`npm run db:migrate -w server`, idempo
 
 Deviations from the spec made during the build, with rationale:
 
-- **Fortnightly / monthly recurrence** is generated with a simple deterministic rule (fortnightly: even ISO week numbers; monthly: only the first occurrence of the weekday in the calendar month) rather than tracking an explicit per-pattern anchor/offset. This keeps the schema simple; a real fortnightly cadence anchored to an arbitrary start date is a good Phase 2 refinement.
+- **Fortnightly / monthly recurrence** is generated with a simple deterministic rule (fortnightly: even ISO week numbers; monthly: only the first occurrence of the weekday in the calendar month) rather than tracking an explicit per-pattern anchor/offset. This keeps the schema simple; a real fortnightly cadence anchored to an arbitrary start date is a good Phase 2 refinement. **`every-3-weeks`** (added later, at the owner's request) *does* carry a per-pattern `anchorDate` — a 3-week cycle can't get away with the "global parity" trick fortnightly uses, since there's no notion of "every 3rd ISO week" that means the same thing to everyone. If left blank when creating the pattern, it defaults to the pattern's own `createdAt` date, so "every 3 weeks starting from whenever I added this" just works without asking the owner to think about anchor dates for the common case.
 - **"Generate next week"** generates jobs for whatever week is currently displayed in the roster (with prev/next navigation), rather than being hard-coded to "next calendar week" — this is more flexible for catching up if a week was missed.
 - **Employee CRUD was built (and committed) before Client CRUD**, reversing the spec's listed order — the client form's "default employee" field needs the employees list to exist for a typed tRPC call, so employees had to land first.
 - **Sessions are stateless** (signed cookie, no server-side session table) since there's only ever one logged-in user — simpler than adding a sessions table for no real benefit at this scale.
