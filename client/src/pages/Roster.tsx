@@ -388,6 +388,9 @@ export default function Roster() {
               <IconEdit className="h-4 w-4" />
             </ActionIconButton>
             {responseToggle}
+            <ActionIconButton label="Reverse (this was marked complete by mistake)" tone="danger" onClick={() => setCancelJob(job)}>
+              <IconX className="h-4 w-4" />
+            </ActionIconButton>
           </div>
         )}
       </div>

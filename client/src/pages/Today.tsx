@@ -178,9 +178,32 @@ export default function Today() {
 
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   {resolved ? (
-                    <Button size="sm" variant="secondary" onClick={() => setEditJob(job)}>
-                      Edit
-                    </Button>
+                    <>
+                      <Button size="sm" variant="secondary" onClick={() => setEditJob(job)}>
+                        Edit
+                      </Button>
+                      {job.status === "completed" && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => setCancelJob(job)}
+                          title="This was marked complete by mistake"
+                        >
+                          Reverse
+                        </Button>
+                      )}
+                      {job.status === "cancelled" && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleDelete(job)}
+                          title="Remove entirely — not a cancellation"
+                        >
+                          <TrashIcon size={15} />
+                          Remove
+                        </Button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <Button size="sm" onClick={() => setCompleteJob(job)}>
