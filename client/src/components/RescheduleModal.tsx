@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
-import { Button, Input, Modal, Select } from "./ui";
+import { Button, Input, Modal } from "./ui";
+import { SearchSelect } from "./SearchSelect";
 import { useToast } from "./Toast";
 
 /**
@@ -45,14 +46,13 @@ export function RescheduleModal({ open, onClose, job }: { open: boolean; onClose
           <Input label="New date" type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} required />
           <Input label="New start time" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
         </div>
-        <Select label="Employee" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-          <option value="">Unassigned</option>
-          {employees.data?.map((emp) => (
-            <option key={emp.id} value={emp.id}>
-              {emp.name}
-            </option>
-          ))}
-        </Select>
+        <SearchSelect
+          label="Employee"
+          placeholder="Unassigned"
+          value={employeeId}
+          onChange={setEmployeeId}
+          options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
+        />
         {reschedule.error && <p className="text-sm text-red-600">{reschedule.error.message}</p>}
         <Button
           className="w-full"

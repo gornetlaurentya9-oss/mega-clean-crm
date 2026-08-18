@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "../lib/trpc";
 import { SERVICE_TYPES, FREQUENCIES, DAYS_OF_WEEK, DAY_LABELS } from "../lib/constants";
 import { Button, Select, Input, EmptyState } from "./ui";
+import { SearchSelect } from "./SearchSelect";
 
 export function RecurringPatterns({ clientId }: { clientId: number }) {
   const utils = trpc.useUtils();
@@ -103,14 +104,12 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
           value={form.durationHours}
           onChange={(e) => setForm({ ...form, durationHours: Number(e.target.value) })}
         />
-        <Select value={form.defaultEmployeeId} onChange={(e) => setForm({ ...form, defaultEmployeeId: e.target.value })}>
-          <option value="">No default employee</option>
-          {employees.data?.map((emp) => (
-            <option key={emp.id} value={emp.id}>
-              {emp.name}
-            </option>
-          ))}
-        </Select>
+        <SearchSelect
+          placeholder="No default employee"
+          value={form.defaultEmployeeId}
+          onChange={(v) => setForm({ ...form, defaultEmployeeId: v })}
+          options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
+        />
         {form.frequency === "every-3-weeks" && (
           <Input
             type="date"

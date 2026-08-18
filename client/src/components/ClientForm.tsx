@@ -4,6 +4,7 @@ import { z } from "zod";
 import { SERVICE_TYPES, FREQUENCIES, CLIENT_STATUSES, BILLING_RATE_TYPES } from "../lib/constants";
 import { DAY_LABELS, DAYS_OF_WEEK } from "../lib/constants";
 import { Button, Card, Checkbox, Input, Select, Textarea } from "./ui";
+import { SearchSelect } from "./SearchSelect";
 import { trpc } from "../lib/trpc";
 
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -49,6 +50,8 @@ export function ClientForm({
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<ClientFormValues>({
     resolver: zodResolver(schema),
@@ -112,14 +115,13 @@ export function ClientForm({
           />
         </div>
 
-        <Select label="Default employee" tabIndex={9} {...register("defaultEmployeeId", { valueAsNumber: true })}>
-          <option value="">—</option>
-          {employees.data?.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
-        </Select>
+        <SearchSelect
+          label="Default employee"
+          placeholder="—"
+          value={watch("defaultEmployeeId") ? String(watch("defaultEmployeeId")) : ""}
+          onChange={(v) => setValue("defaultEmployeeId", v ? Number(v) : undefined, { shouldDirty: true })}
+          options={(employees.data ?? []).map((e) => ({ value: String(e.id), label: e.name }))}
+        />
       </FormSection>
 
       <FormSection title="Billing &amp; access notes">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { trpc } from "../lib/trpc";
 import { SERVICE_TYPES } from "../lib/constants";
 import { Button, Input, Modal, Select } from "./ui";
+import { SearchSelect } from "./SearchSelect";
 import { useToast } from "./Toast";
 
 // Manual status edits here are limited to the two "still upcoming" states. Completing, cancelling
@@ -90,19 +91,14 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
   return (
     <Modal open={open} onClose={onClose} title={job ? "Edit job" : "Add one-off job"}>
       <div className="space-y-4">
-        <Select
+        <SearchSelect
           label="Client"
           required
+          placeholder="Type to search clients…"
           value={form.clientId}
-          onChange={(e) => setForm({ ...form, clientId: e.target.value })}
-        >
-          <option value="">Select a client…</option>
-          {clients.data?.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
+          onChange={(v) => setForm({ ...form, clientId: v })}
+          options={(clients.data ?? []).map((c) => ({ value: String(c.id), label: c.name, sublabel: c.phone }))}
+        />
 
         <Select label="Service type" value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })}>
           {SERVICE_TYPES.map((s) => (
@@ -135,14 +131,13 @@ export function JobModal({ open, onClose, job, defaultDate }: JobModalProps) {
             value={form.plannedDurationHours}
             onChange={(e) => setForm({ ...form, plannedDurationHours: Number(e.target.value) })}
           />
-          <Select label="Employee" value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}>
-            <option value="">Unassigned</option>
-            {employees.data?.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.name}
-              </option>
-            ))}
-          </Select>
+          <SearchSelect
+            label="Employee"
+            placeholder="Unassigned"
+            value={form.employeeId}
+            onChange={(v) => setForm({ ...form, employeeId: v })}
+            options={(employees.data ?? []).map((emp) => ({ value: String(emp.id), label: emp.name }))}
+          />
         </div>
 
         {job && (EDITABLE_STATUSES as readonly string[]).includes(job.status) && (
