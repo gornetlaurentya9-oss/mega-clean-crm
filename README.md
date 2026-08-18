@@ -70,7 +70,7 @@ npm run db:migrate   # apply pending migrations to the Postgres database
 See `server/src/db/schema.ts` for the full Drizzle schema:
 
 - **clients** — contact info, service types, default frequency/day/time/duration, a `defaultEmployeeId` (a lightweight suggested-default field only — not wired to any pattern/job automation, see [Multiple employees on a job](#multiple-employees-on-a-job)), access notes (key codes, alarms, pets, parking), billing rate + type, status.
-- **employees** — contact info, qualified service types, hourly pay rate, status, a weekly availability pattern (JSON), plus a separate **employee_time_off** table for date-range leave.
+- **employees** — contact info, qualified service types, hourly pay rate, status, a fixed weekly days-off list (JSON — see [Employee days off](#employee-days-off)), plus a separate **employee_time_off** table for date-range (one-off) leave.
 - **recurring_patterns** — per-client recurring cleans (service type, frequency, **one** day of week, time, duration) that feed the roster generator. `frequency` is one of `weekly`, `fortnightly`, `every-3-weeks`, `monthly`, `one-off`. `every-3-weeks` carries an optional `anchorDate` (falls back to the pattern's `createdAt` date) since a 3-week cycle needs a fixed reference point to know which week is "week 1" — see [Deviations](#deviations--phase-2-ideas). A client cleaned multiple times a week (e.g. Mon/Wed/Fri) just has multiple pattern rows, one per day — see [Multiple days a week](#multiple-days-a-week) for how the client detail page's form handles adding them together. Which employee(s) a pattern is assigned to lives in the separate **recurring_pattern_employees** join table — see [Multiple employees on a job](#multiple-employees-on-a-job).
 - **jobs** — one row per scheduled clean, with status, actual hours, completion notes, a `clientResponseStatus` (`confirmed` | `change-requested`, independent of `status` — see [Two-stage messaging](#two-stage-messaging--client-response-status)), and an optional link back to the recurring pattern that generated it (`null` = one-off job). Which employee(s) are assigned lives in the separate **job_employees** join table — see [Multiple employees on a job](#multiple-employees-on-a-job).
 - **job_employees** / **recurring_pattern_employees** — many-to-many join tables assigning one or more employees to a job / recurring pattern. See [Multiple employees on a job](#multiple-employees-on-a-job).
@@ -108,7 +108,7 @@ The four service types (`Deep cleaning`, `Regular cleaning – commercial`, `Reg
 - **Tomorrow's messages** (`/tomorrow`) — every scheduled/confirmed job for tomorrow with a pre-filled reminder text and a Copy / Copy all button.
 - **Heads-up messages** (`/heads-up`) — the first stage of the two-stage messaging flow: every scheduled/confirmed job in whichever week is currently selected (same prev/next week picker as the roster, not hard-coded to "next week") with a pre-filled "just a heads-up, you're booked in…" message, Copy / Copy all, same as Tomorrow's messages. Purely a message-drafting screen — copying (or not copying) a message has no effect anywhere else in the app.
 - **Invoice prep** (`/invoicing`) — pick any From/To date range (defaults to month-to-date), see every completed (and partially-completed-then-cancelled) job in that range grouped by client with computed totals in euros, export to CSV. Includes paused/inactive clients' history. Plain cancelled jobs (no work done) never appear here.
-- **Import** (`/import`) — bulk CSV import for Clients and Employees, with a validated preview before anything is committed — see [CSV import](#csv-import).
+- **Import** (`/import`) — bulk CSV import for Clients, Employees, and Recurring patterns, with a validated preview before anything is committed — see [CSV import](#csv-import).
 - **Dashboard** (`/`) — the four Phase 1 stats (this week's job count, month-to-date revenue, unresolved roster conflicts, jobs awaiting completion) plus three lightweight Phase 2 sections aimed at a phone-in-the-evening glance: today/tomorrow's remaining jobs, the active conflicts list (with day/time and a link into the roster), and jobs awaiting completion confirmation with an inline "mark complete" button. Deliberately kept to "at a glance" — no charts, trends, or full analytics.
 
 ## Cancellation & reschedule model
@@ -174,19 +174,30 @@ A client cleaned 2–3 times a week (or more) needs one `recurring_patterns` row
 
 The day field is now a multi-select chip row (Mon/Tue/Wed/…) instead of a single dropdown. Selecting more than one day and submitting creates one pattern per day selected — same service type, frequency, time, duration, and assigned employee(s) on all of them — via a sequential `recurringPatterns.create` call per day, with a single summary toast ("3 recurring patterns added") rather than one per day. This composes with [multi-employee assignment](#multiple-employees-on-a-job): selecting Mon/Wed/Fri + Alice/Bob creates 3 patterns, each assigned to both Alice and Bob. No schema change beyond the join tables described above; this is purely a client-side form/UX change over the same one-pattern-per-day data model.
 
+## Employee days off
+
+Two kinds of "an employee shouldn't be scheduled" exist in this app, and they're deliberately separate:
+
+- **One-off leave** — the pre-existing `employee_time_off` table: a `startDate`/`endDate` range with an optional reason (sick day, holiday, etc.), managed from the employee detail page.
+- **A fixed weekly day off** — a *permanent* recurring rule ("I never work Mondays"), not tied to any date range. This is new: `employees.availability` (a JSON text column that existed in the schema since Phase 1 but had no UI and no reader anywhere in the app — originally spec'd as positive `{ day, startTime, endTime }` time-slot availability) is repurposed to store a simple JSON array of `DayOfWeek` strings instead: the weekdays this employee doesn't work. No migration was needed — the column, its type, and its default (`"[]"`) are unchanged; only the JSON shape written into it changed, and nothing outside this app ever read the old shape. It's exposed through the API and UI as `daysOff` (`employees.create`/`update` accept a `daysOff: DayOfWeek[]` array; `employees.list`/`byId` return it the same way), while the underlying db column keeps its original `availability` name.
+- The `EmployeeForm` (add/edit) has a "Days off" chip row — the same Mon/Tue/Wed… multi-select chip control `RecurringPatterns.tsx`'s day picker already established, reused here rather than inventing a new control type.
+
+**Conflict detection** treats a day off exactly like the other three checks — see [Conflict detection](#conflict-detection) below: recomputed live on every load, never cached at job-generation time. Adding (or removing) a `daysOff` entry for an employee immediately starts (or stops) flagging every job — past, present, or already-generated — assigned to them on that weekday, with no regeneration step needed.
+
 ## Conflict detection
 
-`computeConflicts(from, to)` (`server/src/conflicts.ts`) is a pure, stateless read: on every call it re-queries current jobs, employee time-off, and employee qualifications and recomputes from scratch — nothing is cached from generation time. Practically, that means:
+`computeConflicts(from, to)` (`server/src/conflicts.ts`) is a pure, stateless read: on every call it re-queries current jobs, employee time-off, employee qualifications, and employee days-off, and recomputes from scratch — nothing is cached from generation time. It flags four independent things per assigned employee on a job: double-booking (an overlapping job elsewhere the same day), one-off time off (`employee_time_off` date ranges), not being qualified for the job's service type, and being scheduled on a fixed weekly day off (`daysOff` — see [Employee days off](#employee-days-off) above; message format: "`{name}` doesn't normally work {Weekday}s — scheduled on {date} for {clientName}."). Practically, that means:
 
 - Marking an employee on time-off/sick leave **after** jobs were already generated and assigned retroactively flags every affected existing job the next time conflicts are queried (no regeneration needed).
 - Editing an employee's qualified service types after jobs were assigned retroactively flags jobs for service types they're no longer qualified for.
+- Setting a `daysOff` rule for an employee **after** jobs were already generated/assigned to them on that weekday retroactively flags those existing jobs, same as time-off above — see [Employee days off](#employee-days-off).
 - Rescheduling a job onto a slot that now double-books the employee, or onto a day they're unavailable, is flagged as soon as the reschedule is saved (the roster invalidates the conflicts query on every mutation).
 - Only non-`cancelled`/non-`cancelled-partial` jobs are considered — cancelling one of two double-booked jobs immediately clears the conflict on the remaining one.
 - Overlap is a real interval check (`start < otherEnd && otherStart < end`), so back-to-back jobs for the same employee (e.g. 9–11am then 11am–1pm) are correctly *not* flagged — only actual time overlaps count.
 
 ## CSV import
 
-`/import` supports two CSV uploads — Clients and Employees — with client-side parsing (`papaparse`) and a full validation preview before anything is written. Only rows with zero errors **and** no detected duplicate are committed; every other row is skipped and the reason shown. Enum-like fields (service types, frequency, status, etc.) are matched case-insensitively but strictly against the same fixed vocab used everywhere else in the app — an unrecognized value blocks that row with a clear message rather than being silently dropped or guessed.
+`/import` supports three CSV uploads — Clients, Employees, and Recurring patterns — with client-side parsing (`papaparse`) and a full validation preview before anything is written. Only rows with zero errors **and** no detected duplicate are committed; every other row is skipped and the reason shown. Enum-like fields (service types, frequency, status, etc.) are matched case-insensitively but strictly against the same fixed vocab used everywhere else in the app — an unrecognized value blocks that row with a clear message rather than being silently dropped or guessed.
 
 **Duplicate handling**: a row is treated as a duplicate (and skipped, never silently double-created) if its name+phone (case-insensitive, trimmed) exactly matches an existing client/employee already in the database, *or* an earlier row already in the same CSV file.
 
@@ -238,6 +249,31 @@ Alice Smith,555-9999,Deep cleaning;Regular cleaning – domestic,25,active
 
 Import employees **before** clients if you want the clients' `defaultEmployeeName` column to resolve — the importer matches by the employee's current name at import time, not by re-checking after the employees import finishes.
 
+### Recurring patterns CSV — expected columns, in order
+
+Unlike Clients/Employees, this importer has **no duplicate detection** — multiple patterns for the same client/day are legitimate (e.g. a client cleaned Mon/Wed/Fri), so there's no "already exists" identity check worth building. Every zero-error row is committed by calling the existing `recurringPatterns.create` mutation once per row, reusing that mutation's own server-side validation — same approach as Clients/Employees below.
+
+| # | Column | Required | Type / accepted values | Default if blank |
+|---|---|---|---|---|
+| 1 | `clientName` | **Yes** | must match an existing client's name exactly (case-insensitive) — unlike `defaultEmployeeName` below, a pattern with no resolvable client can't be created at all, so an unmatched name is a **hard error** that blocks the row, not a soft warning | — |
+| 2 | `serviceType` | **Yes** | one of: `Deep cleaning`, `Regular cleaning – commercial`, `Regular cleaning – domestic`, `Carpet cleaning` (case-insensitive, must match exactly otherwise — note "commercial"/"domestic" use an en dash) | — |
+| 3 | `frequency` | **Yes** | one of: `weekly`, `fortnightly`, `every-3-weeks`, `monthly`, `one-off` | — |
+| 4 | `dayOfWeek` | **Yes** | one of: `monday`, `tuesday`, `wednesday`, `thursday`, `friday`, `saturday`, `sunday` | — |
+| 5 | `startTime` | **Yes** | 24-hour `HH:mm`, e.g. `09:00` or `14:30` | — |
+| 6 | `durationHours` | **Yes** | positive number, e.g. `2` or `1.5` | — |
+| 7 | `employeeNames` | No | zero or more **existing** employee names, `;`-separated, e.g. `Alice Smith;Bob Jones` — each matched case-insensitively. If a listed name doesn't match an existing employee, that one name is skipped with a warning (same graceful field-level-failure pattern as `defaultEmployeeName` on the Clients CSV) — the rest of the row, and any other names listed, still import. | unassigned |
+| 8 | `anchorDate` | No | `YYYY-MM-DD` — only meaningful when `frequency` is `every-3-weeks`; ignored for every other frequency | none (falls back to the pattern's `createdAt`, same as adding a pattern through the client detail page) |
+| 9 | `active` | No | `true` / `false` (case-insensitive) | `true` |
+
+Example row:
+
+```csv
+clientName,serviceType,frequency,dayOfWeek,startTime,durationHours,employeeNames,anchorDate,active
+Jane Doe,Deep cleaning,weekly,monday,09:00,2,Alice Smith;Bob Jones,,true
+```
+
+Import Clients and Employees **before** Recurring patterns — `clientName` and `employeeNames` both resolve against records already in the database at import time.
+
 ## Deploying (Render)
 
 The app deploys as a **single Render Web Service**. In production the Express server serves the built Vite frontend as static files (see the `if (IS_PRODUCTION)` block in `server/src/index.ts`) and answers the API on the same origin at `/trpc`, so there's no separate static site / CORS setup to configure — one service, one URL.
@@ -283,7 +319,8 @@ Deviations from the spec made during the build, with rationale:
 - **Employee CRUD was built (and committed) before Client CRUD**, reversing the spec's listed order — the client form's "default employee" field needs the employees list to exist for a typed tRPC call, so employees had to land first.
 - **Sessions are stateless** (signed cookie, no server-side session table) since there's only ever one logged-in user — simpler than adding a sessions table for no real benefit at this scale.
 - **`cancelled-partial` is a new job status**, not part of the original Phase 1 `JOB_STATUSES` — see [Cancellation & reschedule model](#cancellation--reschedule-model) for the reasoning. The pre-existing `rescheduled` status is left in the enum for backwards compatibility but is no longer set by the app — `jobs.reschedule` moves a job in place and resets it to `scheduled` instead of using a separate status, so the roster only ever needs to look at one row per job.
-- **CSV import runs entirely client-side** (parsing with `papaparse`, validation in `client/src/lib/csvImport.ts`) and commits by calling the existing `clients.create` / `employees.create` mutations once per valid row, rather than adding a dedicated bulk-insert endpoint — simplest option for a one-time ~65-row import, and it reuses the exact same server-side validation every other create path goes through.
+- **CSV import runs entirely client-side** (parsing with `papaparse`, validation in `client/src/lib/csvImport.ts`) and commits by calling the existing `clients.create` / `employees.create` / `recurringPatterns.create` mutations once per valid row, rather than adding a dedicated bulk-insert endpoint — simplest option for a one-time bulk import, and it reuses the exact same server-side validation every other create path goes through. The Recurring patterns importer (added later, for a ~75-pattern bulk setup after the initial Clients/Employees import) follows the exact same parse → preview → commit shape, minus duplicate detection (not a meaningful concept for patterns — see [CSV import](#csv-import)).
+- **`employees.availability` was repurposed, not replaced**, to back the new fixed weekly days-off feature — see [Employee days off](#employee-days-off). The column existed since Phase 1 with a positive `{ day, startTime, endTime }` shape that no UI or reader ever consumed; since nothing outside the app read that shape, reinterpreting the same `text`/JSON column as a simple `DayOfWeek[]` needed no schema migration, just an app-level type/parsing change (exposed as `daysOff`).
 
 - **Responsive nav**: `Layout.tsx` renders the same `NAV_ITEMS` list two ways — a fixed bottom tab bar below Tailwind's `md:` breakpoint (unchanged from earlier phases, correct for one-handed phone use) and a fixed left sidebar (logo, stacked nav, logout) at `md:` and up, switched purely with responsive Tailwind classes (`hidden md:flex` / `md:hidden`) rather than JS viewport detection, to avoid layout flash. The header's logo only shows on mobile (the sidebar's logo replaces it on desktop); the logout button stays in the header at both breakpoints, plus a second copy at the bottom of the desktop sidebar.
 - **Roster calendar-grid view** is a simple stacked-card-per-day-column layout, not a true pixel-positioned time-axis calendar — enough to read "what's on Tuesday vs Wednesday" at a glance without the complexity of real time-slot geometry. The by-day view remains the default and is still the better choice one-handed on a phone; the calendar grid is there for when a wider side-by-side view is wanted, and needs horizontal scroll on narrow viewports (same `overflow-x-auto` pattern the `Table` component already uses).

@@ -372,7 +372,8 @@ export const jobsRouter = router({
     }),
 
   // Flags scheduling conflicts within a date range: double-booked employees, employees on
-  // time-off, and employees not qualified for the job's service type.
+  // time-off, employees not qualified for the job's service type, and employees scheduled on
+  // their fixed weekly day off.
   conflicts: protectedProcedure
     .input(z.object({ from: z.string(), to: z.string() }))
     .query(async ({ input }) => {

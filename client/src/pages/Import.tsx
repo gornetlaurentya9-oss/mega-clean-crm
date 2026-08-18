@@ -5,14 +5,17 @@ import { useToast } from "../components/Toast";
 import {
   CLIENT_CSV_COLUMNS,
   EMPLOYEE_CSV_COLUMNS,
+  RECURRING_PATTERN_CSV_COLUMNS,
   parseClientsCsv,
   parseEmployeesCsv,
+  parseRecurringPatternsCsv,
   type ParsedRow,
   type ClientCsvRow,
   type EmployeeCsvRow,
+  type RecurringPatternCsvRow,
 } from "../lib/csvImport";
 
-type Tab = "clients" | "employees";
+type Tab = "clients" | "employees" | "patterns";
 type CommitResult = { rowNumber: number; name: string; ok: boolean; message: string };
 
 function IconUpload({ className }: { className?: string }) {
@@ -63,6 +66,7 @@ export default function Import() {
   const [fileName, setFileName] = useState("");
   const [clientRows, setClientRows] = useState<ParsedRow<ClientCsvRow>[] | null>(null);
   const [employeeRows, setEmployeeRows] = useState<ParsedRow<EmployeeCsvRow>[] | null>(null);
+  const [patternRows, setPatternRows] = useState<ParsedRow<RecurringPatternCsvRow>[] | null>(null);
   const [results, setResults] = useState<CommitResult[] | null>(null);
   const [committing, setCommitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -74,12 +78,14 @@ export default function Import() {
   const existingEmployees = trpc.employees.list.useQuery();
   const createClient = trpc.clients.create.useMutation();
   const createEmployee = trpc.employees.create.useMutation();
+  const createPattern = trpc.recurringPatterns.create.useMutation();
 
   function switchTab(t: Tab) {
     setTab(t);
     setFileName("");
     setClientRows(null);
     setEmployeeRows(null);
+    setPatternRows(null);
     setResults(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -99,7 +105,8 @@ export default function Import() {
           )
         );
         setEmployeeRows(null);
-      } else {
+        setPatternRows(null);
+      } else if (tab === "employees") {
         setEmployeeRows(
           parseEmployeesCsv(
             text,
@@ -107,6 +114,17 @@ export default function Import() {
           )
         );
         setClientRows(null);
+        setPatternRows(null);
+      } else {
+        setPatternRows(
+          parseRecurringPatternsCsv(
+            text,
+            (existingClients.data ?? []).map((c) => ({ id: c.id, name: c.name })),
+            (existingEmployees.data ?? []).map((emp) => ({ id: emp.id, name: emp.name }))
+          )
+        );
+        setClientRows(null);
+        setEmployeeRows(null);
       }
     };
     reader.readAsText(file);
@@ -124,10 +142,17 @@ export default function Import() {
     if (file) processFile(file);
   }
 
-  const rows = tab === "clients" ? clientRows : employeeRows;
+  const rows = tab === "clients" ? clientRows : tab === "employees" ? employeeRows : patternRows;
   const importable = (rows ?? []).filter((r) => r.data && !r.isDuplicate);
   const blocked = (rows ?? []).filter((r) => r.errors.length > 0);
   const duplicates = (rows ?? []).filter((r) => r.isDuplicate);
+
+  // Recurring pattern rows have no natural "name" — the client name from the raw CSV cell is
+  // used purely for display in the preview/results table.
+  function rowLabel(r: ParsedRow<any>): string {
+    if (tab === "patterns") return r.raw["clientname"] || "—";
+    return r.raw["name"] || "—";
+  }
 
   async function commit() {
     if (!rows) return;
@@ -144,7 +169,7 @@ export default function Import() {
         }
       }
       utils.clients.list.invalidate();
-    } else {
+    } else if (tab === "employees") {
       for (const row of employeeRows ?? []) {
         if (!row.data || row.isDuplicate) continue;
         try {
@@ -155,6 +180,20 @@ export default function Import() {
         }
       }
       utils.employees.list.invalidate();
+    } else {
+      // Committed by calling the existing recurringPatterns.create mutation once per valid row —
+      // same pattern as Clients/Employees above, reusing all its server-side validation rather
+      // than adding a dedicated bulk-insert endpoint.
+      for (const row of patternRows ?? []) {
+        if (!row.data || row.isDuplicate) continue;
+        try {
+          await createPattern.mutateAsync(row.data);
+          out.push({ rowNumber: row.rowNumber, name: row.raw["clientname"] ?? "", ok: true, message: "Imported" });
+        } catch (err: any) {
+          out.push({ rowNumber: row.rowNumber, name: row.raw["clientname"] ?? "", ok: false, message: err?.message ?? "Failed" });
+        }
+      }
+      utils.recurringPatterns.list.invalidate();
     }
     setResults(out);
     setCommitting(false);
@@ -167,30 +206,31 @@ export default function Import() {
     }
   }
 
-  const columns = tab === "clients" ? CLIENT_CSV_COLUMNS : EMPLOYEE_CSV_COLUMNS;
+  const columns = tab === "clients" ? CLIENT_CSV_COLUMNS : tab === "employees" ? EMPLOYEE_CSV_COLUMNS : RECURRING_PATTERN_CSV_COLUMNS;
   const loadingExisting = existingClients.isLoading || existingEmployees.isLoading;
+  const tabLabels: Record<Tab, string> = { clients: "Clients", employees: "Employees", patterns: "Recurring patterns" };
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-brand-navy">Import from CSV</h1>
       <p className="text-sm text-gray-600">
-        Bulk-add clients or employees from a spreadsheet. Nothing is saved until you review the preview
-        below and confirm — see the README for the exact column format.
+        Bulk-add clients, employees, or recurring patterns from a spreadsheet. Nothing is saved until you
+        review the preview below and confirm — see the README for the exact column format.
       </p>
 
       <div className="flex gap-1 rounded-control bg-gray-100 p-1">
-        {(["clients", "employees"] as const).map((t) => (
+        {(["clients", "employees", "patterns"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => switchTab(t)}
             className={cx(
-              "min-h-[40px] flex-1 rounded-control px-4 text-sm font-medium capitalize transition-all duration-150",
+              "min-h-[40px] flex-1 rounded-control px-2 text-sm font-medium transition-all duration-150",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent",
               tab === t ? "bg-white text-brand-primary shadow-soft" : "text-gray-500 hover:text-gray-700"
             )}
           >
-            {t}
+            {tabLabels[t]}
           </button>
         ))}
       </div>
@@ -241,8 +281,8 @@ export default function Import() {
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
                   <th className="px-3 py-2">Row</th>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Phone</th>
+                  <th className="px-3 py-2">{tab === "patterns" ? "Client" : "Name"}</th>
+                  <th className="px-3 py-2">{tab === "patterns" ? "Day / time" : "Phone"}</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Notes</th>
                 </tr>
@@ -251,8 +291,12 @@ export default function Import() {
                 {rows.map((r) => (
                   <tr key={r.rowNumber} className={r.errors.length > 0 ? "bg-red-50" : r.isDuplicate ? "bg-yellow-50" : ""}>
                     <td className="px-3 py-2 text-gray-500">{r.rowNumber}</td>
-                    <td className="px-3 py-2 font-medium">{r.raw["name"] || <span className="text-gray-400">—</span>}</td>
-                    <td className="px-3 py-2 text-gray-600">{r.raw["phone"] || <span className="text-gray-400">—</span>}</td>
+                    <td className="px-3 py-2 font-medium">{rowLabel(r) !== "—" ? rowLabel(r) : <span className="text-gray-400">—</span>}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {tab === "patterns"
+                        ? [r.raw["dayofweek"], r.raw["starttime"]].filter(Boolean).join(" ") || <span className="text-gray-400">—</span>
+                        : r.raw["phone"] || <span className="text-gray-400">—</span>}
+                    </td>
                     <td className="px-3 py-2">
                       {r.errors.length > 0 ? (
                         <Badge tone="red">
@@ -296,7 +340,7 @@ export default function Import() {
       {loadingExisting && <Spinner />}
 
       {rows === null && !loadingExisting && (
-        <EmptyState>Choose a CSV file to preview {tab === "clients" ? "clients" : "employees"} before importing.</EmptyState>
+        <EmptyState>Choose a CSV file to preview {tabLabels[tab].toLowerCase()} before importing.</EmptyState>
       )}
 
       {results && (

@@ -43,7 +43,13 @@ export const employees = pgTable("employees", {
   qualifiedServiceTypes: text("qualified_service_types").notNull().default("[]"),
   hourlyPayRate: real("hourly_pay_rate"),
   status: text("status").notNull().default("active"),
-  // JSON-encoded array of { day: DayOfWeek, startTime: string, endTime: string }.
+  // JSON-encoded array of DayOfWeek strings — this employee's fixed weekly day(s) off (a
+  // permanent "never schedule me on this weekday" rule, not one-off leave — that's
+  // `employeeTimeOff` below, which models date ranges instead). Column name/shape predates this:
+  // it was originally spec'd as positive `{ day, startTime, endTime }` time-slot availability but
+  // never got a UI or any reader anywhere in the app, so it was reinterpreted here as this
+  // simpler negative day-off list rather than adding a new column — exposed to the API/UI as
+  // `daysOff`, still stored under this `availability` db column name.
   availability: text("availability").notNull().default("[]"),
   ...timestamps,
 });

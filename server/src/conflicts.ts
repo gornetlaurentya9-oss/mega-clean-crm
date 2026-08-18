@@ -1,6 +1,13 @@
 import { and, eq, gte, lte, inArray } from "drizzle-orm";
+import { getISODay, parseISO } from "date-fns";
 import { db } from "./db/index.js";
 import { jobs, clients, employees, employeeTimeOff, jobEmployees } from "./db/schema.js";
+import { DAYS_OF_WEEK, DAY_LABELS } from "./constants.js";
+
+function weekdayOf(dateStr: string): (typeof DAYS_OF_WEEK)[number] {
+  // getISODay: 1=Monday..7=Sunday, matching DAYS_OF_WEEK's index+1 order.
+  return DAYS_OF_WEEK[getISODay(parseISO(dateStr)) - 1];
+}
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
@@ -17,7 +24,7 @@ function overlaps(aStart: string, aDur: number, bStart: string, bDur: number): b
 
 export interface JobConflict {
   jobId: number;
-  type: "double-booked" | "time-off" | "not-qualified";
+  type: "double-booked" | "time-off" | "not-qualified" | "day-off";
   message: string;
 }
 
@@ -52,12 +59,20 @@ export async function computeConflicts(from: string, to: string): Promise<JobCon
     .leftJoin(employees, eq(jobEmployees.employeeId, employees.id))
     .where(inArray(jobEmployees.jobId, jobIds));
 
-  const employeesByJob = new Map<number, { id: number; name: string; qualifiedServiceTypes: string }[]>();
+  const employeesByJob = new Map<
+    number,
+    { id: number; name: string; qualifiedServiceTypes: string; availability: string }[]
+  >();
   for (const a of assignmentRows) {
     if (!a.employee) continue;
     employeesByJob.set(a.jobId, [
       ...(employeesByJob.get(a.jobId) ?? []),
-      { id: a.employee.id, name: a.employee.name, qualifiedServiceTypes: a.employee.qualifiedServiceTypes },
+      {
+        id: a.employee.id,
+        name: a.employee.name,
+        qualifiedServiceTypes: a.employee.qualifiedServiceTypes,
+        availability: a.employee.availability,
+      },
     ]);
   }
 
@@ -106,6 +121,21 @@ export async function computeConflicts(from: string, to: string): Promise<JobCon
           jobId: job.id,
           type: "not-qualified",
           message: `${emp.name} is not qualified for ${job.serviceType} (job for ${clientName}).`,
+        });
+      }
+
+      // Fixed weekly day off (permanent recurring unavailability — see the `availability` column
+      // comment in schema.ts), distinct from the one-off `employeeTimeOff` date-range check above.
+      // Recomputed live on every load exactly like the other checks: a day-off rule added after a
+      // job was already generated/assigned retroactively flags that existing job here, with no
+      // regeneration needed.
+      const daysOff = JSON.parse(emp.availability || "[]") as (typeof DAYS_OF_WEEK)[number][];
+      const weekday = weekdayOf(job.scheduledDate);
+      if (daysOff.includes(weekday)) {
+        conflicts.push({
+          jobId: job.id,
+          type: "day-off",
+          message: `${emp.name} doesn't normally work ${DAY_LABELS[weekday]}s — scheduled on ${job.scheduledDate} for ${clientName}.`,
         });
       }
     }

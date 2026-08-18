@@ -8,26 +8,24 @@ import { SERVICE_TYPES, EMPLOYEE_STATUSES, DAYS_OF_WEEK } from "../constants.js"
 
 const serviceTypeEnum = z.enum(SERVICE_TYPES);
 
-const availabilitySlot = z.object({
-  day: z.enum(DAYS_OF_WEEK),
-  startTime: z.string(), // HH:mm
-  endTime: z.string(), // HH:mm
-});
-
 const employeeInput = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z.string().optional().default(""),
   qualifiedServiceTypes: z.array(serviceTypeEnum).optional().default([]),
   hourlyPayRate: z.number().min(0).optional().nullable(),
   status: z.enum(EMPLOYEE_STATUSES).optional().default("active"),
-  availability: z.array(availabilitySlot).optional().default([]),
+  // Fixed weekly day(s) this employee never works — see the `availability` column comment in
+  // schema.ts. Stored under that column name; exposed here (and everywhere in the app) as
+  // `daysOff`, checked live by conflicts.ts.
+  daysOff: z.array(z.enum(DAYS_OF_WEEK)).optional().default([]),
 });
 
 function serialize(row: typeof employees.$inferSelect) {
+  const { availability, ...rest } = row;
   return {
-    ...row,
+    ...rest,
     qualifiedServiceTypes: JSON.parse(row.qualifiedServiceTypes || "[]") as string[],
-    availability: JSON.parse(row.availability || "[]") as z.infer<typeof availabilitySlot>[],
+    daysOff: JSON.parse(availability || "[]") as (typeof DAYS_OF_WEEK)[number][],
   };
 }
 
@@ -53,12 +51,13 @@ export const employeesRouter = router({
   }),
 
   create: protectedProcedure.input(employeeInput).mutation(async ({ input }) => {
+    const { daysOff, ...rest } = input;
     const [row] = await db
       .insert(employees)
       .values({
-        ...input,
-        qualifiedServiceTypes: JSON.stringify(input.qualifiedServiceTypes ?? []),
-        availability: JSON.stringify(input.availability ?? []),
+        ...rest,
+        qualifiedServiceTypes: JSON.stringify(rest.qualifiedServiceTypes ?? []),
+        availability: JSON.stringify(daysOff ?? []),
         updatedAt: new Date().toISOString(),
       })
       .returning();
@@ -68,13 +67,13 @@ export const employeesRouter = router({
   update: protectedProcedure
     .input(employeeInput.partial().extend({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const { id, ...rest } = input;
+      const { id, daysOff, ...rest } = input;
       const values: Record<string, unknown> = { ...rest, updatedAt: new Date().toISOString() };
       if (rest.qualifiedServiceTypes) {
         values.qualifiedServiceTypes = JSON.stringify(rest.qualifiedServiceTypes);
       }
-      if (rest.availability) {
-        values.availability = JSON.stringify(rest.availability);
+      if (daysOff !== undefined) {
+        values.availability = JSON.stringify(daysOff);
       }
       const [row] = await db.update(employees).set(values).where(eq(employees.id, id)).returning();
       return serialize(row);

@@ -217,6 +217,160 @@ export function parseClientsCsv(
   });
 }
 
+export const RECURRING_PATTERN_CSV_COLUMNS = [
+  "clientName",
+  "serviceType",
+  "frequency",
+  "dayOfWeek",
+  "startTime",
+  "durationHours",
+  "employeeNames",
+  "anchorDate",
+  "active",
+] as const;
+
+export interface RecurringPatternCsvRow {
+  clientId: number;
+  serviceType: (typeof SERVICE_TYPES)[number];
+  frequency: (typeof FREQUENCIES)[number];
+  dayOfWeek: (typeof DAYS_OF_WEEK)[number];
+  startTime: string;
+  durationHours: number;
+  employeeIds: number[];
+  anchorDate: string | null;
+  active: boolean;
+}
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function parseRecurringPatternsCsv(
+  csvText: string,
+  clients: { id: number; name: string }[],
+  employees: { id: number; name: string }[]
+): ParsedRow<RecurringPatternCsvRow>[] {
+  const rows = parseCsvText(csvText);
+
+  return rows.map((raw, idx) => {
+    const rowNumber = idx + 2;
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Unlike defaultEmployeeName on the client importer, a pattern with no resolvable client
+    // can't be created at all — this is a hard error, not a soft field-level warning.
+    const clientNameRaw = raw["clientname"] ?? "";
+    let clientId: number | null = null;
+    if (!clientNameRaw) {
+      errors.push("Client name is required");
+    } else {
+      const match = clients.find((c) => c.name.trim().toLowerCase() === clientNameRaw.trim().toLowerCase());
+      if (!match) errors.push(`Client: no client named "${clientNameRaw}" found`);
+      else clientId = match.id;
+    }
+
+    let serviceType: (typeof SERVICE_TYPES)[number] | null = null;
+    const serviceTypeRaw = raw["servicetype"] ?? "";
+    if (!serviceTypeRaw) {
+      errors.push("Service type is required");
+    } else {
+      const match = matchEnum(serviceTypeRaw, SERVICE_TYPES);
+      if (!match) errors.push(`Service type: unrecognized value "${serviceTypeRaw}" (expected one of: ${SERVICE_TYPES.join(", ")})`);
+      else serviceType = match;
+    }
+
+    let frequency: (typeof FREQUENCIES)[number] | null = null;
+    const frequencyRaw = raw["frequency"] ?? "";
+    if (!frequencyRaw) {
+      errors.push("Frequency is required");
+    } else {
+      const match = matchEnum(frequencyRaw, FREQUENCIES);
+      if (!match) errors.push(`Frequency: unrecognized value "${frequencyRaw}" (expected one of: ${FREQUENCIES.join(", ")})`);
+      else frequency = match;
+    }
+
+    let dayOfWeek: (typeof DAYS_OF_WEEK)[number] | null = null;
+    const dayRaw = raw["dayofweek"] ?? "";
+    if (!dayRaw) {
+      errors.push("Day of week is required");
+    } else {
+      const match = matchEnum(dayRaw, DAYS_OF_WEEK);
+      if (!match) errors.push(`Day of week: unrecognized value "${dayRaw}" (expected one of: ${DAYS_OF_WEEK.join(", ")})`);
+      else dayOfWeek = match;
+    }
+
+    const startTime = raw["starttime"] ?? "";
+    if (!startTime) errors.push("Start time is required");
+    else if (!TIME_RE.test(startTime)) errors.push(`Start time: "${startTime}" is not in HH:mm 24-hour format`);
+
+    let durationHours: number | null = null;
+    const durationRaw = raw["durationhours"] ?? "";
+    if (!durationRaw) {
+      errors.push("Duration is required");
+    } else {
+      const n = Number(durationRaw);
+      if (!Number.isFinite(n) || n <= 0) errors.push(`Duration: "${durationRaw}" is not a positive number`);
+      else durationHours = n;
+    }
+
+    const employeeIds: number[] = [];
+    const employeeNamesRaw = raw["employeenames"] ?? "";
+    if (employeeNamesRaw) {
+      const names = employeeNamesRaw
+        .split(";")
+        .map((n) => n.trim())
+        .filter(Boolean);
+      for (const n of names) {
+        const match = employees.find((e) => e.name.trim().toLowerCase() === n.toLowerCase());
+        if (!match) {
+          // Graceful field-level failure, same pattern as defaultEmployeeName above — this name
+          // is skipped, the rest of the row (and the other listed names) still import.
+          warnings.push(`Employee: no employee named "${n}" found — skipping`);
+        } else if (!employeeIds.includes(match.id)) {
+          employeeIds.push(match.id);
+        }
+      }
+    }
+
+    // Only meaningful for "every-3-weeks" — ignored otherwise, same as the app's own form.
+    let anchorDate: string | null = null;
+    const anchorRaw = raw["anchordate"] ?? "";
+    if (anchorRaw) {
+      if (!DATE_RE.test(anchorRaw)) errors.push(`Anchor date: "${anchorRaw}" is not in YYYY-MM-DD format`);
+      else if (frequency === "every-3-weeks" || !frequencyRaw) anchorDate = anchorRaw;
+      // else: frequency isn't every-3-weeks (or already errored) — silently ignored, not an error.
+    }
+
+    let active = true;
+    const activeRaw = raw["active"] ?? "";
+    if (activeRaw) {
+      const v = activeRaw.trim().toLowerCase();
+      if (v === "true") active = true;
+      else if (v === "false") active = false;
+      else errors.push(`Active: "${activeRaw}" is not "true" or "false"`);
+    }
+
+    const data: RecurringPatternCsvRow | null =
+      errors.length === 0
+        ? {
+            clientId: clientId as number,
+            serviceType: serviceType as (typeof SERVICE_TYPES)[number],
+            frequency: frequency as (typeof FREQUENCIES)[number],
+            dayOfWeek: dayOfWeek as (typeof DAYS_OF_WEEK)[number],
+            startTime,
+            durationHours: durationHours as number,
+            employeeIds,
+            anchorDate,
+            active,
+          }
+        : null;
+
+    // No duplicate detection for this importer — multiple patterns for the same client/day are
+    // legitimate (e.g. a multi-day-a-week setup), so there's no natural "already exists" identity
+    // check worth building, unlike Clients/Employees.
+    return { rowNumber, raw, data, errors, warnings, isDuplicate: false };
+  });
+}
+
 export interface EmployeeCsvRow {
   name: string;
   phone: string;
