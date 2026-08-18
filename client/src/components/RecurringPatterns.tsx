@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { trpc } from "../lib/trpc";
 import { SERVICE_TYPES, FREQUENCIES, DAYS_OF_WEEK, DAY_LABELS } from "../lib/constants";
-import { Button, Select, Input, EmptyState } from "./ui";
+import { Button, Select, Input, EmptyState, cx } from "./ui";
 import { SearchSelect } from "./SearchSelect";
+import { useToast } from "./Toast";
 
 export function RecurringPatterns({ clientId }: { clientId: number }) {
   const utils = trpc.useUtils();
+  const toast = useToast();
   const patterns = trpc.recurringPatterns.list.useQuery({ clientId });
   const employees = trpc.employees.list.useQuery({ status: "active" });
-  const create = trpc.recurringPatterns.create.useMutation({
-    onSuccess: () => utils.recurringPatterns.list.invalidate({ clientId }),
-  });
+  const create = trpc.recurringPatterns.create.useMutation();
   const update = trpc.recurringPatterns.update.useMutation({
     onSuccess: () => utils.recurringPatterns.list.invalidate({ clientId }),
   });
@@ -18,27 +18,55 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
     onSuccess: () => utils.recurringPatterns.list.invalidate({ clientId }),
   });
 
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     serviceType: SERVICE_TYPES[0] as string,
     frequency: "weekly" as string,
-    dayOfWeek: "monday" as string,
+    // Multiple days selected at once creates one pattern per day (e.g. a client cleaned
+    // Mon/Wed/Fri) instead of making the owner add them one at a time.
+    days: ["monday"] as string[],
     startTime: "09:00",
     durationHours: 2,
     defaultEmployeeId: "" as string,
     anchorDate: "" as string,
   });
 
-  function submit() {
-    create.mutate({
-      clientId,
-      serviceType: form.serviceType as any,
-      frequency: form.frequency as any,
-      dayOfWeek: form.dayOfWeek as any,
-      startTime: form.startTime,
-      durationHours: Number(form.durationHours),
-      defaultEmployeeId: form.defaultEmployeeId ? Number(form.defaultEmployeeId) : null,
-      anchorDate: form.frequency === "every-3-weeks" && form.anchorDate ? form.anchorDate : null,
-    });
+  function toggleDay(day: string) {
+    setForm((f) => ({
+      ...f,
+      days: f.days.includes(day) ? f.days.filter((d) => d !== day) : [...f.days, day],
+    }));
+  }
+
+  async function submit() {
+    if (form.days.length === 0) {
+      toast.error("Pick at least one day");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      for (const day of form.days) {
+        await create.mutateAsync({
+          clientId,
+          serviceType: form.serviceType as any,
+          frequency: form.frequency as any,
+          dayOfWeek: day as any,
+          startTime: form.startTime,
+          durationHours: Number(form.durationHours),
+          defaultEmployeeId: form.defaultEmployeeId ? Number(form.defaultEmployeeId) : null,
+          anchorDate: form.frequency === "every-3-weeks" && form.anchorDate ? form.anchorDate : null,
+        });
+      }
+      utils.recurringPatterns.list.invalidate({ clientId });
+      toast.success(
+        form.days.length === 1 ? "Recurring pattern added" : `${form.days.length} recurring patterns added (one per day)`
+      );
+    } catch {
+      toast.error("Could not add one or more patterns");
+      utils.recurringPatterns.list.invalidate({ clientId });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -89,13 +117,34 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
             </option>
           ))}
         </Select>
-        <Select value={form.dayOfWeek} onChange={(e) => setForm({ ...form, dayOfWeek: e.target.value })}>
-          {DAYS_OF_WEEK.map((d) => (
-            <option key={d} value={d}>
-              {DAY_LABELS[d]}
-            </option>
-          ))}
-        </Select>
+        <div className="col-span-2 sm:col-span-3">
+          <span className="mb-1 block text-sm font-medium text-gray-700">
+            Day(s) <span className="text-red-600">*</span>
+            {form.days.length > 1 && (
+              <span className="ml-1 font-normal text-gray-400">— one pattern will be added per day selected</span>
+            )}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {DAYS_OF_WEEK.map((d) => {
+              const active = form.days.includes(d);
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleDay(d)}
+                  className={cx(
+                    "min-h-[40px] rounded-control border px-3 text-sm font-medium transition-colors duration-150",
+                    active
+                      ? "border-brand-primary bg-brand-primary text-white"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-brand-accent hover:bg-brand-accent/10"
+                  )}
+                >
+                  {DAY_LABELS[d].slice(0, 3)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
         <Input
           type="number"
@@ -118,8 +167,12 @@ export function RecurringPatterns({ clientId }: { clientId: number }) {
             onChange={(e) => setForm({ ...form, anchorDate: e.target.value })}
           />
         )}
-        <Button className="col-span-2 sm:col-span-3" variant="secondary" onClick={submit} disabled={create.isPending}>
-          + Add pattern
+        <Button className="col-span-2 sm:col-span-3" variant="secondary" onClick={submit} disabled={submitting}>
+          {submitting
+            ? "Adding…"
+            : form.days.length > 1
+              ? `+ Add ${form.days.length} patterns`
+              : "+ Add pattern"}
         </Button>
       </div>
     </div>

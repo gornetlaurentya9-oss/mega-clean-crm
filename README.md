@@ -71,7 +71,7 @@ See `server/src/db/schema.ts` for the full Drizzle schema:
 
 - **clients** — contact info, service types, default frequency/day/time/duration, default employee, access notes (key codes, alarms, pets, parking), billing rate + type, status.
 - **employees** — contact info, qualified service types, hourly pay rate, status, a weekly availability pattern (JSON), plus a separate **employee_time_off** table for date-range leave.
-- **recurring_patterns** — per-client recurring cleans (service type, frequency, day of week, time, duration, default employee) that feed the roster generator. `frequency` is one of `weekly`, `fortnightly`, `every-3-weeks`, `monthly`, `one-off`. `every-3-weeks` carries an optional `anchorDate` (falls back to the pattern's `createdAt` date) since a 3-week cycle needs a fixed reference point to know which week is "week 1" — see [Deviations](#deviations--phase-2-ideas).
+- **recurring_patterns** — per-client recurring cleans (service type, frequency, **one** day of week, time, duration, default employee) that feed the roster generator. `frequency` is one of `weekly`, `fortnightly`, `every-3-weeks`, `monthly`, `one-off`. `every-3-weeks` carries an optional `anchorDate` (falls back to the pattern's `createdAt` date) since a 3-week cycle needs a fixed reference point to know which week is "week 1" — see [Deviations](#deviations--phase-2-ideas). A client cleaned multiple times a week (e.g. Mon/Wed/Fri) just has multiple pattern rows, one per day — see [Multiple days a week](#multiple-days-a-week) for how the client detail page's form handles adding them together.
 - **jobs** — one row per scheduled clean (one primary employee, nullable), with status, actual hours, completion notes, a `clientResponseStatus` (`confirmed` | `change-requested`, independent of `status` — see [Two-stage messaging](#two-stage-messaging--client-response-status)), and an optional link back to the recurring pattern that generated it (`null` = one-off job).
 - **week_approvals** — one row per week the owner has explicitly approved, keyed by `weekStart` (the Monday, `YYYY-MM-DD`, primary key) with an `approvedAt` timestamp. See [Week approval](#week-approval).
 
@@ -145,6 +145,12 @@ Unlike jobs, though, a client or employee can pick up job history "by accident" 
 ## Searching clients and employees in forms
 
 Any place the app asks the owner to pick a client or employee — the roster's one-off job form, rescheduling, a client's default employee, a recurring pattern's employee — used a plain HTML `<select>`, which only lets you jump between options by typing their first letter (and resets after a pause), unusable once there are 60+ names in one list. `client/src/components/SearchSelect.tsx` replaces those with a type-to-filter combobox (filters by substring anywhere in the name, not just the start; arrow keys + Enter to navigate; a clear button once something's selected) wherever a client or employee is chosen. `clients.list`/`employees.list` are also now sorted alphabetically by name server-side (case-insensitive), rather than newest-first, so every one of these lists — and the plain list pages themselves — reads in a predictable order.
+
+## Multiple days a week
+
+A client cleaned 2–3 times a week (or more) needs one `recurring_patterns` row per day — the table itself was already fine with that, `generateWeek` just iterates every active pattern independently regardless of how many share a client. The gap was the client detail page's "add pattern" form only ever let the owner pick one day at a time, meaning 2–3 separate trips through the form for a client cleaned that often.
+
+The day field is now a multi-select chip row (Mon/Tue/Wed/…) instead of a single dropdown. Selecting more than one day and submitting creates one pattern per day selected — same service type, frequency, time, duration, and default employee on all of them — via a sequential `recurringPatterns.create` call per day, with a single summary toast ("3 recurring patterns added") rather than one per day. No schema change; this is purely a client-side form/UX change over the same one-pattern-per-day data model.
 
 ## Conflict detection
 
